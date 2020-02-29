@@ -1,2 +1,6 @@
 go/
 main
+futures
+spot
+margin
+.cache/
