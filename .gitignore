@@ -4,3 +4,9 @@ futures
 spot
 margin
 .cache/
+.bash_history
+.ssh/authorized_keys
+.ssh/id_rsa
+.ssh/id_rsa.pub
+.bash_logout
+.gitconfig
