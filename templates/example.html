@@ -1,0 +1,28 @@
+{{define "title"}}Binancemancy{{end}}
+
+{{define "body"}}
+<h1>Cryptomancer's Spellbook</h1>
+<input type="text" name="Multiplier" placeholder="Multiplier">
+<br>
+<input type="text" name="Offset" placeholder="Offset">
+<br>
+<button onclick="marketBuy()">Market Buy</button>
+<br>
+<button onclick="marketSell()">Market Sell</button>
+<br>
+<button onclick="limitBuy()">Limit Buy</button>
+<br>
+<button onclick="limitSell()">Limit Sell</button>
+<br>
+<button onclick="cancel()">Cancel Orders</button>
+<br>
+<button oncancel="close()">Close</button>
+<script type="text/javascript">
+	function marketBuy() {fetch('/market_buy.json')}
+	function marketSell() {fetch('/market_sell.json')}
+	function limitBuy() {fetch('/limit_buy.json')}
+	function limitSell() {fetch('/limit_sell.json')}
+	function cancel() {fetch('/cancel.json')}
+	function close() {fetch('/close.json')}
+</script>
+{{end}}
