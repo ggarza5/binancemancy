@@ -10,3 +10,14 @@ margin
 .ssh/id_rsa.pub
 .bash_logout
 .gitconfig
+td/
+.dbshell
+.mongorc.js
+.subversion/
+cmake-3.10.0.tar.gz
+cmake-3.10.0/
+credentials.json
+db/
+install.sh
+pkg/
+ubuntuTgInstallScript.sh

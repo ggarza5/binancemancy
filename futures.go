@@ -3,7 +3,7 @@ package main
 import (
     "fmt"
     "net/http"
-    "github.com/adshao/go-binance"
+    "github.com/ggarza5/go-binance-futures"
     "github.com/pborman/getopt/v2"
     "context"
     "log"
@@ -19,7 +19,7 @@ var (
     apiKey = "jIyd39L4YfD5CRvygwh5LY1IVilQ38NXY5RshUxKGwR1Sjj6ZGzynkxfK1p2jX0c"
     secretKey = "3IbVAdTpwMN417BNbiwxc63NMpm0EZiBRbC7YFol4gbMytV4FxtfBfJ5dGkgq5Z2"
     openDirection = "SELL"
-    tradeDirection = "BUY"
+    tradeDirection = ""
     globalOffset = 0.01
     positionMultiplier = 0.1
 
@@ -49,7 +49,7 @@ var (
         "LTCUSDT":3,
         "TRXUSDT":11500,
         "ETCUSDT":20,
-        "LINKUSDT":70,
+        "LINKUSDT":60,
         "XLMUSDT":3000,
         "ADAUSDT":3000,
         "XMRUSDT":1.75,
@@ -59,10 +59,10 @@ var (
         "ATOMUSDT":50,
         "BNBUSDT":6,
         "ONTUSDT":200,
-        "IOTAUSDT":1100,
+        "IOTAUSDT":1400,
         "BATUSDT":1000,
-        "VETUSDT":21000,
-        "NEOUSDT":8,
+        "VETUSDT":25000,
+        "NEOUSDT":12,
         "QTUMUSDT":100,
         "IOSTUSDT":20000,
     }
@@ -187,15 +187,20 @@ func printFlagArguments() {
 
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
 func cleanFlagArguments() {
-    if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
+    if len(tradeDirection) == 0 {
+        tradeDirection = "cancel"      
+    }  else if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
         tradeDirection = tradeDirection[1:]
     }
     if tradeDirection[0] == 's' || tradeDirection[0] == 'S' {
         tradeDirection = "SELL"
     } else if tradeDirection[0] == 'l' || tradeDirection[0] == 'L' {
         tradeDirection = "BUY"
+        println(tradeDirection)        
     } else {
-        log.Fatal("Direction flag used with an unsuitable argument.")        
+        if tradeDirection != "cancel" {
+            log.Fatal("Direction flag used with an unsuitable argument.")
+        }
     }
     if globalOffsetFlag[0] == ' ' || globalOffsetFlag[0] == '=' {
         globalOffsetFlag = globalOffsetFlag[1:]
@@ -215,10 +220,51 @@ func cleanFlagArguments() {
     }  else if mode[0] == 'c'|| mode[0] == 'C' {
         mode = "cancel"
     } else if mode[0] == 's'|| mode[0] == 'S' {
-        mode = "server"
+        if len(mode) < 2 {
+            mode = "server"
+        } else if len(mode) < 3 {
+            mode = "stopMarket"
+        } else if len(mode) < 4 {
+            println("we got to reduce only!!!")
+            mode = "stopMarketReduceOnly"
+        } else {
+            mode = "server"
+        }
     } else {
         log.Fatal("Mode flag used with an unsuitable argument.")
     }
+}
+
+//TODO
+// func shortIfPriceClosedBelowLevel(client *binance.Client, pair string, timeframe string, price string)
+//calculate trendlines
+//use intercept and slope
+
+
+//func shortIfPriceClosedBelowTrend
+
+var ltcFifteen = make([]*binance.WsKlineEvent, 0)
+var ltcFifteenIndex = 0
+var ltcFifteenRSI = 0.0
+
+func listenOnSocket(client *binance.Client, pair string, timeframe string) {
+    wsKlineHandler := func(event *binance.WsKlineEvent) {
+        if event.Kline.IsFinal {
+            fmt.Println(event)
+            ltcFifteen = append(ltcFifteen, event)
+            // marketOrders(client, )
+        }
+        // fmt.Println(ltcFifteen)
+    }
+    errHandler := func(err error) {
+        fmt.Println(err)
+    }
+    doneC, _, err := binance.WsKlineServe(pair, timeframe, wsKlineHandler, errHandler)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    <-doneC       
 }
 
 //end getopt initialization
@@ -229,15 +275,16 @@ func cleanFlagArguments() {
  ************************
  */
 func main() {
-
+    println("jhhh")
     getopt.Parse()
     cleanFlagArguments()
     // printFlagArguments()
     client := binance.NewClient(apiKey, secretKey)
+    client.Debug = true
     if mode == "market" {
-        marketOrders(client, stringToSide(tradeDirection))
+        marketOrders(client, stringToSide(tradeDirection), pairs...)
     } else if mode == "limit" {
-        limitOrders(client, stringToSide(tradeDirection), globalOffset)
+        limitOrders(client, stringToSide(tradeDirection), globalOffset, pairs...)
     } else if mode == "account" {
         account, _  := client.NewGetAccountService().Do(context.Background())
         println(account)        
@@ -246,7 +293,17 @@ func main() {
     } else if mode == "close" {
         closeOpenPositions(client)
     } else if mode == "server" {
-        setupServer()
+        // setupServer()
+        listenOnSocket(client, "BTCUSDT", "1m")
+
+    } else if mode == "stopMarket" {
+        //longs will have stops set below current prices,
+        //shorts will have stops set above current prices
+        stopMarketOrders(client, stringToSide(tradeDirection), globalOffset, binance.OrderReduceOnlyFalse, pairs...)
+    } else if mode == "stopMarketReduceOnly" {
+        //longs will have stops set below current prices,
+        //shorts will have stops set above current prices
+        stopMarketOrders(client, stringToSide(tradeDirection), globalOffset, binance.OrderReduceOnlyTrue, pairs...)
     } else {
         log.Fatal("Utility not called with a suitable argument to the mode flag. Exiting without execution.")
     }
@@ -269,7 +326,7 @@ func setupServer() {
 func serveTemplate(w http.ResponseWriter, r *http.Request) {
     lp := filepath.Join("templates", "layout.html")
     fp := filepath.Join("templates", filepath.Clean(r.URL.Path))
-
+    // println(r.URL.Path)
     // Return a 404 if the template doesn't exist
     info, err := os.Stat(fp)
     if err != nil {
@@ -391,8 +448,10 @@ func getPrices(client *binance.Client) []*binance.SymbolPrice {
     prices, err := client.NewListPricesService().Do(context.Background())
     if err != nil {
         fmt.Println(err)
+        fmt.Println("Error getting prices")
         return nil
     } 
+    fmt.Println(prices)
     //skip btc and eth prices
     return prices[2:]    
 }
@@ -452,20 +511,6 @@ func round(x, unit float64) float64 {
 }
 
 /*
- * function limitOrders
- * params: client
- ************************
- */
-func limitOrders(client *binance.Client, direction binance.SideType, offset float64) {
-    prices := getPrices(client)
-    for globalPairIndex, _ := range pairs {
-        reversedIndex := len(pairs) - globalPairIndex - 1
-        size := calculateOrderSizeFromPrecision(positionMultiplier * positionSizes[pairs[reversedIndex]], pairs[reversedIndex])
-        limitOrder(client, direction, pairs[reversedIndex], offset, size, calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]))
-    }
-}
-
-/*
  * function calculateOrderSizeFromPrecision
  * params: priceString string, offset float64, direction binance.SideType
  ************************
@@ -513,6 +558,24 @@ func calculateOrderPriceFromOffset(priceString string, offset float64, direction
 }
 
 /*
+ * function limitOrders
+ * params: client
+ ************************
+ */
+func limitOrders(client *binance.Client, direction binance.SideType, offset float64, pairs ...string) {
+    prices := getPrices(client)
+    for globalPairIndex, _ := range pairs {
+        reversedIndex := len(pairs) - globalPairIndex - 1
+        size := calculateOrderSizeFromPrecision(positionMultiplier * positionSizes[pairs[reversedIndex]], pairs[reversedIndex])
+        println(reversedIndex)
+        println(pairs[reversedIndex])
+        fmt.Println(prices)           
+        println(prices[reversedIndex])     
+        limitOrder(client, direction, pairs[reversedIndex], offset, size, calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]))
+    }
+}
+
+/*
  * function limitOrder
  * params: client
  ************************
@@ -530,12 +593,61 @@ func limitOrder(client *binance.Client, direction binance.SideType, asset string
 }
 
 /*
+ * function getOppositeDirection
+ * params: client
+ ************************
+ * Simply returns the opposite side type as the argument. Used for stoplosses
+ */
+func getOppositeDirection(direction binance.SideType) binance.SideType {
+    if direction == binance.SideTypeBuy {
+        return binance.SideTypeSell
+    } else {
+        return binance.SideTypeBuy
+    }    
+}
+
+/*
+ * function stopMarketOrders
+ * params: client
+ ************************
+ */
+func stopMarketOrders(client *binance.Client, direction binance.SideType, offset float64, isReduceOnly binance.OrderReduceOnly, pairs ...string) {
+    prices := getPrices(client)  
+    println("THE REDUCE ONLY STATUS")  
+    println(isReduceOnly)
+    for globalPairIndex, _ := range pairs {
+        reversedIndex := len(pairs) - globalPairIndex - 1        
+        size := calculateOrderSizeFromPrecision(positionMultiplier * positionSizes[pairs[reversedIndex]], pairs[reversedIndex])        
+        stopMarketOrder(client, getOppositeDirection(direction), pairs[reversedIndex], offset, size, calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]), isReduceOnly)
+    }
+}
+
+/*
+ * function stopMarketOrder
+ * params: client
+ ************************
+ *///error-returning
+func stopMarketOrder(client *binance.Client, direction binance.SideType, asset string, offset float64, size string, price string, isReduceOnly binance.OrderReduceOnly) error {
+    order, err := client.NewCreateOrderService().Symbol(asset).
+        Side(direction).Type(binance.OrderTypeStopLoss).
+        Quantity(size).ReduceOnly(isReduceOnly).
+        StopPrice(price).Do(context.Background())
+    if err != nil {
+        fmt.Println(err)
+        return err
+    }
+    openPositions[asset] -= positionMultiplier * positionSizes[asset]        
+    fmt.Println(order)
+    return nil
+}
+/*
  * function marketOrders
  * params: client
  ************************
  */
-func marketOrders(client *binance.Client, direction binance.SideType) {
+func marketOrders(client *binance.Client, direction binance.SideType, pairs ...string) {
     for _, asset := range pairs {
+        println(calculateOrderSizeFromPrecision(positionMultiplier * positionSizes[asset], asset))
         marketOrder(client, direction, asset, calculateOrderSizeFromPrecision(positionMultiplier * positionSizes[asset], asset))
     }
 }

@@ -19,12 +19,12 @@ var (
     apiKey = "jIyd39L4YfD5CRvygwh5LY1IVilQ38NXY5RshUxKGwR1Sjj6ZGzynkxfK1p2jX0c"
     secretKey = "3IbVAdTpwMN417BNbiwxc63NMpm0EZiBRbC7YFol4gbMytV4FxtfBfJ5dGkgq5Z2"
     openDirection = "SELL"
-    tradeDirection = "BUY"
+    tradeDirection = ""
     globalOffset = 0.01
-    positionMultiplier = 0.1
+    positionMultiplier = 1.0
 
     globalOffsetFlag = "0.01"
-    positionMultiplierFlag = "0.1"
+    positionMultiplierFlag = "1.0"
     mode = "market"
 
     client = binance.NewClient(apiKey, secretKey)
@@ -433,15 +433,22 @@ func printFlagArguments() {
 
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
 func cleanFlagArguments() {
-    if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
+        println(tradeDirection)         
+    if len(tradeDirection) == 0 {
+        tradeDirection = "cancel" 
+        println(tradeDirection)     
+    }  else if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
         tradeDirection = tradeDirection[1:]
     }
     if tradeDirection[0] == 's' || tradeDirection[0] == 'S' {
         tradeDirection = "SELL"
     } else if tradeDirection[0] == 'l' || tradeDirection[0] == 'L' {
         tradeDirection = "BUY"
+        println(tradeDirection)        
     } else {
-        log.Fatal("Direction flag used with an unsuitable argument.")        
+        if tradeDirection != "cancel" {
+            log.Fatal("Direction flag used with an unsuitable argument.")
+        }
     }
     if globalOffsetFlag[0] == ' ' || globalOffsetFlag[0] == '=' {
         globalOffsetFlag = globalOffsetFlag[1:]
@@ -451,7 +458,6 @@ func cleanFlagArguments() {
         positionMultiplierFlag = positionMultiplierFlag[1:]
     }
     positionMultiplier, _ = strconv.ParseFloat(positionMultiplierFlag, 64)
-    println("mode flag is " + mode[0:2])
     if mode[0] == ' ' || mode[0] == '=' {
         mode = mode[1:]
     }
@@ -459,17 +465,62 @@ func cleanFlagArguments() {
         mode = "market"
     } else if mode[0] == 'l'|| mode[0] == 'L' {
         mode = "limit"
-    }  else if mode[0:2] == "ca" || mode[0:2] == "Ca" || mode[0:2] == "CA" || mode[0:2] == "cA" {
-        mode = "cancel"
-    }  else if mode[0:2] == "cl" || mode[0:2] == "Cl" || mode[0:2] == "CL" || mode[0:2] == "cL" {
-        mode = "close"
     } else if mode[0] == 's'|| mode[0] == 'S' {
-        mode = "server"
+        if len(mode) < 2 {
+            mode = "server"
+        } else if (mode[0:2] == "st" || mode[0:2] == "St" || mode[0:2] == "ST" || mode[0:2] == "sT") {
+            mode = "stopMarket"
+        } else {
+            mode = "server"
+        }
     } else {
-        log.Fatal("Mode flag used with an unsuitable argument.")
-    }
-    println(mode)
+        if mode[0:2] == "ca" || mode[0:2] == "Ca" || mode[0:2] == "CA" || mode[0:2] == "cA" {
+            mode = "cancel"
+        }  else if mode[0:2] == "cl" || mode[0:2] == "Cl" || mode[0:2] == "CL" || mode[0:2] == "cL" {
+            mode = "close"
+        }  else {
+            log.Fatal("Mode flag used with an unsuitable argument.")
+        }    
+    }    
+    // if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
+    //     tradeDirection = tradeDirection[1:]
+    // }
+    // if tradeDirection[0] == 's' || tradeDirection[0] == 'S' {
+    //     tradeDirection = "SELL"
+    // } else if tradeDirection[0] == 'l' || tradeDirection[0] == 'L' {
+    //     tradeDirection = "BUY"
+    // } else {
+    //     log.Fatal("Direction flag used with an unsuitable argument.")        
+    // }
+    // if globalOffsetFlag[0] == ' ' || globalOffsetFlag[0] == '=' {
+    //     globalOffsetFlag = globalOffsetFlag[1:]
+    // }
+    // globalOffset, _ = strconv.ParseFloat(globalOffsetFlag, 64)
+    // if positionMultiplierFlag[0] == ' ' || positionMultiplierFlag[0] == '=' {
+    //     positionMultiplierFlag = positionMultiplierFlag[1:]
+    // }
+    // positionMultiplier, _ = strconv.ParseFloat(positionMultiplierFlag, 64)
+    // println("mode flag is " + mode[0:2])
+    // if mode[0] == ' ' || mode[0] == '=' {
+    //     mode = mode[1:]
+    // }
+    // if mode[0] == 'm' || mode[0] == 'M' {
+    //     mode = "market"
+    // } else if mode[0] == 'l'|| mode[0] == 'L' {
+    //     mode = "limit"
+    // }  else if mode[0:2] == "ca" || mode[0:2] == "Ca" || mode[0:2] == "CA" || mode[0:2] == "cA" {
+    //     mode = "cancel"
+    // }  else if mode[0:2] == "cl" || mode[0:2] == "Cl" || mode[0:2] == "CL" || mode[0:2] == "cL" {
+    //     mode = "close"
+    // } else if mode[0] == 's'|| mode[0] == 'S' {
+    //     mode = "server"
+    // } else {
+    //     log.Fatal("Mode flag used with an unsuitable argument.")
+    // }
+    // println(mode)
 }
+
+
 
 func getTradingSymbol(asset string) string {
     return asset + "BTC"
@@ -548,7 +599,7 @@ func getOpenSpotPositions(balances []binance.Balance) map[string]float64 {
     //get the pairs with open spot positions              
     // for i, balance := range balances {
     for _, balance := range balances {
-        if balance.Asset == "HBAR" { continue }
+        // if balance.Asset == "HBAR" { continue }
         if isNonTradingCoin(balance.Asset) { continue }
         floatFree, errFree := strconv.ParseFloat(balance.Free, 64)
         if errFree != nil {
@@ -571,12 +622,12 @@ func closeSpotPositions(openPositions map[string]float64) {
     for k, v := range openPositions {
         if k == "BTC" { continue }     
         println(getTradingSymbol(k))
-        amt := calculateOrderSizeFromPrecision(k, v)
+        amt := calculateOrderSizeFromPrecision(k, v, positionMultiplier)
         if amt == "0.0" { continue }
-        println(calculateOrderSizeFromPrecision(k, v))
+        println(amt)
         spotCloseOrder, spotOrderErr := client.NewCreateOrderService().Symbol(getTradingSymbol(k)).
         Side(binance.SideTypeSell).Type(binance.OrderTypeMarket).
-        Quantity(calculateOrderSizeFromPrecision(k, v)).Do(context.Background())
+        Quantity(calculateOrderSizeFromPrecision(k, v, positionMultiplier)).Do(context.Background())
         println(spotCloseOrder)
         if spotOrderErr != nil {
             fmt.Println(spotOrderErr)
@@ -763,26 +814,26 @@ func round(x, unit float64) float64 {
  * params: priceString string, offset float64, direction binance.SideType
  ************************
  */
-func calculateOrderSizeFromPrecision(asset string, size float64) string {
+func calculateOrderSizeFromPrecision(asset string, size float64, mult float64) string {
     size = math.Floor(size * math.Pow10(positionPrecisions[asset]))/float64(math.Pow10(positionPrecisions[asset]))
     if positionPrecisions[asset] == 0 {
-        return fmt.Sprintf("%d", int64(size))
+        return fmt.Sprintf("%d", int64(mult*size))
     } else if (positionPrecisions[asset] == 1) { 
-        return fmt.Sprintf("%.1f", size)
+        return fmt.Sprintf("%.1f", mult*size)
     } else if (positionPrecisions[asset] == 2) { 
-        return fmt.Sprintf("%.2f", size)
+        return fmt.Sprintf("%.2f", mult*size)
     } else if (positionPrecisions[asset] == 3) {
-        return fmt.Sprintf("%.3f", size)
+        return fmt.Sprintf("%.3f", mult*size)
     } else if (positionPrecisions[asset] == 4) { 
-        return fmt.Sprintf("%.4f", size)
+        return fmt.Sprintf("%.4f", mult*size)
     } else if (positionPrecisions[asset] == 5) { 
-        return fmt.Sprintf("%.5f", size)
+        return fmt.Sprintf("%.5f", mult*size)
     } else if (positionPrecisions[asset] == 6) { 
-        return fmt.Sprintf("%.6f", size)
+        return fmt.Sprintf("%.6f", mult*size)
     } else if (positionPrecisions[asset] == 7) { 
-        return fmt.Sprintf("%.7f", size)
+        return fmt.Sprintf("%.7f", mult*size)
     } else { 
-        return fmt.Sprintf("%.8f", size) 
+        return fmt.Sprintf("%.8f", mult*size) 
     }
 }
 
