@@ -32,7 +32,7 @@ var (
     //TODO: check price differential from high to low and start of order period to end of period/experiment with different time frames and methodologies for beta calculation
 
     //TODO: user interface
-    
+
     //TODO: ADd GET /fapi/v1/positionRisk to account service and
     // DELETE /fapi/v1/allOpenOrders to order service
 
