@@ -26,6 +26,13 @@ var (
     globalOffsetFlag = "0.01"
     positionMultiplierFlag = "0.1"
     mode = "market"
+    //TODO: Add betaCorrectPositions
+    //Check get last batch of orders, and  for those that have not triggered, perform a market order to fill the position at the current price of the ordered asset
+    //Another variant - transfer margin from the high beta assets whose orders have triggered to the low beta ones that didnt trigger on the drawdown
+    //TODO: check price differential from high to low and start of order period to end of period/experiment with different time frames and methodologies for beta calculation
+
+    //TODO: user interface
+    
     //TODO: ADd GET /fapi/v1/positionRisk to account service and
     // DELETE /fapi/v1/allOpenOrders to order service
 
