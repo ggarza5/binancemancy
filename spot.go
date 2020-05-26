@@ -29,6 +29,7 @@ var (
 
     client = binance.NewClient(apiKey, secretKey)
     pairs = []string{"MATICBTC"}
+    pairsFlag = ""
 
     positionPrecisions = map[string]int {
         "ETH":3,
@@ -411,6 +412,7 @@ func init() {
     getopt.FlagLong(&positionMultiplierFlag, "mult", 'm', "multiplier").SetOptional()
     getopt.FlagLong(&globalOffsetFlag, "off", 'o', "off").SetOptional()
     getopt.FlagLong(&mode, "mode", 'M', "mode").SetOptional()
+    getopt.FlagLong(&pairsFlag, "pairs", 'p', "pairs").SetOptional()    
 }
 
 func getAccount(client *binance.Client) *binance.Account {
@@ -429,11 +431,20 @@ func printFlagArguments() {
     println(globalOffsetFlag)
     println(positionMultiplierFlag)
     println(mode)
+    println(pairsFlag)
 }
 
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
 func cleanFlagArguments() {
-        println(tradeDirection)         
+    if len(pairsFlag) != 0 {
+        if pairsFlag[0] == ' ' || pairsFlag[0] == '=' {
+            pairsFlag = pairsFlag[1:]
+        }        
+        pairs = strings.Split(pairsFlag, ",")
+        for _, p := range pairs {
+            println(p)
+        }
+    }        
     if len(tradeDirection) == 0 {
         tradeDirection = "cancel" 
         println(tradeDirection)     
@@ -557,6 +568,23 @@ func main() {
     // printFlagArguments()
     println("made client")
     println(mode)
+    
+    // if mode == "market" {
+    //     //line 630
+    //     if len(pairsFlag) == 0 {
+    //         marketOrders(client, stringToSide(tradeDirection), marginAccount.UserAssets)            
+    //     } else {
+    //         marketOrders(client, stringToSide(tradeDirection), convertPairsToBinanceUserAssets(pairs))
+    //     }
+    // } else if mode == "limit" {
+    //     // limitOrders(client, stringToSide(tradeDirection), globalOffset, marginAccount.UserAssets)
+    //     if len(pairsFlag) == 0 {
+    //         limitOrders(client, stringToSide(tradeDirection), globalOffset, marginAccount.UserAssets)
+    //     } else {
+    //         println("we are just doing pairssss")
+    //         limitOrders(client, stringToSide(tradeDirection), globalOffset, convertPairsToBinanceUserAssets(pairs))
+    //     }
+    // }
     if mode == "market" {
         // marketOrders(client, stringToSide(tradeDirection))
     } else if mode == "limit" {
