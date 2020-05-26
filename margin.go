@@ -15,7 +15,8 @@ import (
     "strings"
 )
 
-//TODO: exclude pairs
+//TODO: Detect existing stop loss, store it, cancel it, reduce position size, and then put stop loss back on after subtracting the position size reduction
+
 var (
     apiKey                 = "jIyd39L4YfD5CRvygwh5LY1IVilQ38NXY5RshUxKGwR1Sjj6ZGzynkxfK1p2jX0c"
     secretKey              = "3IbVAdTpwMN417BNbiwxc63NMpm0EZiBRbC7YFol4gbMytV4FxtfBfJ5dGkgq5Z2"
@@ -110,7 +111,7 @@ var (
     }
 )
 
-func contains(s []string, e string) bool {
+func stringsContains(s []string, e string) bool {
     for _, a := range s {
         if a == e {
             return true
@@ -157,16 +158,6 @@ func printFlagArguments() {
 }
 
 func convertPairsToBinanceUserAssets(pairsArgument []string) []binance.UserAsset {
-    // var assetsToReturn []binance.UserAsset
-    //     type UserAsset struct {
-    //     Asset    string `json:"asset"`
-    //     Borrowed string `json:"borrowed"`
-    //     Free     string `json:"free"`
-    //     Interest string `json:"interest"`
-    //     Locked   string `json:"locked"`
-    //     NetAsset string `json:"netAsset"`
-    // }
-
     assetsToReturn := []binance.UserAsset{}
     for _, p := range pairsArgument {
         userAssetFromPair := binance.UserAsset{
@@ -183,45 +174,7 @@ func convertPairsToBinanceUserAssets(pairsArgument []string) []binance.UserAsset
 }
 
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
-func cleanFlagArguments() {
-    // if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
-    //     tradeDirection = tradeDirection[1:]
-    // }
-    // if tradeDirection[0] == 's' || tradeDirection[0] == 'S' {
-    //     tradeDirection = "SELL"
-    // } else if tradeDirection[0] == 'l' || tradeDirection[0] == 'L' {
-    //     tradeDirection = "BUY"
-    // } else {
-    //     log.Fatal("Direction flag used with an unsuitable argument.")
-    // }
-    // if globalOffsetFlag[0] == ' ' || globalOffsetFlag[0] == '=' {
-    //     globalOffsetFlag = globalOffsetFlag[1:]
-    // }
-    // globalOffset, _ = strconv.ParseFloat(globalOffsetFlag, 64)
-    // if positionMultiplierFlag[0] == ' ' || positionMultiplierFlag[0] == '=' {
-    //     positionMultiplierFlag = positionMultiplierFlag[1:]
-    // }
-    // positionMultiplier, _ = strconv.ParseFloat(positionMultiplierFlag, 64)
-    // if mode[0] == ' ' || mode[0] == '=' {
-    //     mode = mode[1:]
-    // }
-    // if mode[0] == 'm' || mode[0] == 'M' {
-    //     mode = "market"
-    // } else if mode[0] == 'l'|| mode[0] == 'L' {
-    //     mode = "limit"
-    // }  else if mode[0] == 's'|| mode[0] == 'S' {
-    //     mode = "server"
-    // }  else if mode[0] == 'r'|| mode[0] == 'R' {
-    //     mode = "records"
-    // } else {
-    //     if mode[0:2] == "ca" || mode[0:2] == "Ca" || mode[0:2] == "CA" || mode[0:2] == "cA" {
-    //         mode = "cancel"
-    //     }  else if mode[0:2] == "cl" || mode[0:2] == "Cl" || mode[0:2] == "CL" || mode[0:2] == "cL" {
-    //         mode = "close"
-    //     }  else {
-    //         log.Fatal("Mode flag used with an unsuitable argument.")
-    //     }
-    // }
+func cleanFlagArguments() {  
     printFlagArguments()
     if len(pairsFlag) != 0 {
         if pairsFlag[0] == ' ' || pairsFlag[0] == '=' {
@@ -411,67 +364,115 @@ func cancelSpotOrders(orders []*binance.Order) {
     }
 }
 
+
+func getLowestStopLoss(orders []*binance.Order) {
+    var lowOrder *binance.OrderTypeStopLoss 
+    for _, o := range orders {
+        if o.Type == binance.OrderTypeStopLoss {
+            if lowOrder == nil {
+                lowOrder = o
+            } else if o.StopPrice < lowOrder.StopPrice {
+                lowOrder = o
+            }   
+        } else if o.Type == binance.OrderTypeStopLossLimit {
+            if lowOrder == nil {
+                lowOrder = o
+            } else if o.StopPrice < lowOrder.StopPrice {
+                lowOrder = o
+            }   
+        }
+    }
+    return lowOrder
+}  
+
+func getHighestStopLoss(orders []*binance.Order) {
+    var highOrder *binance.OrderTypeStopLoss 
+    for _, o := range orders {
+        if o.Type == binance.OrderTypeStopLoss {
+            if highOrder == nil {
+                highOrder = o
+            } else if o.StopPrice > highOrder.StopPrice {
+                highOrder = o
+            }   
+        } else if o.Type == binance.OrderTypeStopLossLimit {
+            if highOrder == nil {
+                highOrder = o
+            } else if o.StopPrice > highOrder.StopPrice {
+                highOrder = o
+            }   
+        }
+    }
+    return highOrder
+} 
+
 func closeMarginPositions(openPositions map[string]float64) {
-    println("closing margin START")
     for k, v := range openPositions {
-        excludedFoundFlag := false
-        // var closeMarginOrder *binance.Order
-        // var closeOrderErr err
         if k == "BTC" {
             continue
         }
-        for _, excl := range excludedPairs {
-            if k == excl {
-                excludedFoundFlag = true
-                break
-            }
-        }
-        if excludedFoundFlag {
+        if stringsContains(excludedPairs, k) {
             continue
         }
-        println(k)
-
         if minimumPositionSizes[k] == 0 {
             continue
         }
-        println(k)
         if math.Abs(v) < minimumPositionSizes[k] {
             continue
         }
-        println(k)
         if v > 0 {
-            // amt := fmt.Sprintf("%.8f", v)
-            // if k == "BNB" {
-            //     amt = fmt.Sprintf("%d", int64(v))
-            // }
-            // if amt == "0" { continue }
-            // println(amt)
-            // println(getTradingSymbol(k))
+            openOrders, listOrdersErr := client.NewListOpenOrdersService(getTradingSymbol(k)).Do(context.Background())
+            if listOrdersErr != nil {
+                println("got an error listing orders in closeMarginPositions for " + k)
+                log.Fatal(listOrdersErr)
+            }
+            lowStop := getLowestStopLoss(openOrders)
+            _, cancelErr := client.NewCancelMarginOrderService().Symbol(getTradingSymbol(k)).OrderID(lowStop.OrderID)
+            if cancelErr != nil {
+                println("got an error canceling stop in closeMarginPositions for " + k)
+                log.Fatal(cancelErr)                
+            }
             marginCloseOrder, marginOrderErr := client.NewCreateMarginOrderService().Symbol(getTradingSymbol(k)).
                 Side(binance.SideTypeSell).Type(binance.OrderTypeMarket).
                 Quantity(calculateOrderSizeFromPrecision(k, v*proportion)).SideEffectType(binance.SideEffectTypeAutoRepay).Do(context.Background())
-            println(marginCloseOrder)
-            if marginOrderErr != nil {
-                println(k)
+            if marginOrderErr != nil {   
+                println("got an error making margin order in closeMarginPositions")              for   + k 
                 fmt.Println(marginOrderErr)
             }
+            _, newStopErr = client.NewCreateMarginOrderService().Symbol(getTradingSymbol(k)).
+                Side(lowStop.Side).Type(lowStop.Type).Quantity(lowStop.OrigQuantity - lowStop.ExecutedQuantity - calculateOrderSizeFromPrecision(k, v*proportion))
+                .SideEffectType(binance.SideEffectTypeAutoRepay).Do(context.Background)
+            if newStopErr != nil {
+                println("got an error making new stop in closeMarginPositions for " + k)
+                log.Fatal(newStopErr)                            
+            }
         } else {
-            // amt := fmt.Sprintf("%.8f", -1*v)
-            // println(k)
-            // if k == "BNB" {
-            //     amt = fmt.Sprintf("%d", int64(-1*v))
-            // }
+            openOrders, listOrdersErr := client.NewListOpenOrdersService(getTradingSymbol(k)).Do(context.Background())
+            if listOrdersErr != nil {
+                println("got an error listing orders in closeMarginPositions for " + k)
+                log.Fatal(listOrdersErr)
+            }
+            highStop := getHighestStopLoss(openOrders)
+            _, cancelErr := client.NewCancelMarginOrderService().Symbol(getTradingSymbol(k)).OrderID(highStop.OrderID)
+            if cancelErr != nil {
+                println("got an error canceling stop in closeMarginPositions for " + k)
+                log.Fatal(cancelErr)                
+            }            
             marginCloseOrder, marginOrderErr := client.NewCreateMarginOrderService().Symbol(getTradingSymbol(k)).
                 Side(binance.SideTypeBuy).Type(binance.OrderTypeMarket).
                 Quantity(calculateOrderSizeFromPrecision(k, -1*v)).SideEffectType(binance.SideEffectTypeAutoRepay).Do(context.Background())
-            println(marginCloseOrder)
             if marginOrderErr != nil {
-                println(k)
+                println("got an error making margin order in closeMarginPositions for " + k)               
                 fmt.Println(marginOrderErr)
+            }
+             _, newStopErr = client.NewCreateMarginOrderService().Symbol(getTradingSymbol(k)).
+                Side(highStop.Side).Type(highStop.Type).Quantity(highStop.OrigQuantity - highStop.ExecutedQuantity - calculateOrderSizeFromPrecision(k, -1*v*proportion))
+                .SideEffectType(binance.SideEffectTypeAutoRepay).Do(context.Background)
+            if newStopErr != nil {
+                println("got an error making new stop in closeMarginPositions for " + k)
+                log.Fatal(newStopErr)                            
             }
         }
     }
-    println("closign margin END")
 }
 
 func getOpenMarginPositions(assets []binance.UserAsset) map[string]float64 {
