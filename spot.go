@@ -28,8 +28,21 @@ var (
     mode = "market"
 
     client = binance.NewClient(apiKey, secretKey)
-    pairs = []string{"MATICBTC"}
+    priceSlice = []*binance.SymbolPrice{}
+    prices = make(map[string]string)
+
+    pairs = []string{}
     pairsFlag = ""
+    entriesFlag = ""
+    entries = []string{"0.0001"}
+
+    slFlag = ""
+    sl = "0"
+    tpFlag = ""
+    tps = []string{"1000000"}
+
+    minimumOrderSize = 0.0001
+    positionSize = 0.002
 
     positionPrecisions = map[string]int {
         "ETH":3,
@@ -384,7 +397,22 @@ var (
         "AST":8,
         "NANO":7,
     }
+    positionSizes = map[string]float64{
+        "ICX":1,
+        "MATIC":1,
+    }
+
 )
+//Done:
+//Entries
+//Todo:
+//Exits, SL
+//set global openPositions vriable and manage it
+//If we don't have enough btc in spot account or margin account, make a MarginTransferService and transfer it, and if we only have USDT, then trade it for btc 
+
+//2 options for SL
+//Set limit orders to enter, then query those orders every minute or 5 minutes, then once they are filled, place stop orders
+//enter with market orders and place the stop loss right away
 
 func contains(s []string, e string) bool {
     for _, a := range s {
@@ -413,6 +441,9 @@ func init() {
     getopt.FlagLong(&globalOffsetFlag, "off", 'o', "off").SetOptional()
     getopt.FlagLong(&mode, "mode", 'M', "mode").SetOptional()
     getopt.FlagLong(&pairsFlag, "pairs", 'p', "pairs").SetOptional()    
+    getopt.FlagLong(&entriesFlag, "entries", 'e', "entries").SetOptional()    
+    getopt.FlagLong(&slFlag, "stop loss", 's', "stop loss").SetOptional()  
+    getopt.FlagLong(&tpFlag, "take profit", 't', "take profit").SetOptional()        
 }
 
 func getAccount(client *binance.Client) *binance.Account {
@@ -432,6 +463,7 @@ func printFlagArguments() {
     println(positionMultiplierFlag)
     println(mode)
     println(pairsFlag)
+    println(entriesFlag)
 }
 
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
@@ -444,10 +476,26 @@ func cleanFlagArguments() {
         for _, p := range pairs {
             println(p)
         }
-    }        
+    }   
+    if len(entriesFlag) != 0 {
+        if entriesFlag[0] == ' ' || entriesFlag[0] == '=' {
+            entriesFlag = entriesFlag[1:]
+        }        
+        entries = strings.Split(entriesFlag, ",")
+    }  
+    if len(slFlag) != 0 {
+        if slFlag[0] == ' ' || slFlag[0] == '=' {
+            slFlag = slFlag[1:]
+        }        
+    }  
+    if len(tpFlag) != 0 {
+        if tpFlag[0] == ' ' || tpFlag[0] == '=' {
+            tpFlag = tpFlag[1:]
+        }  
+        tps = strings.Split(tpFlag, ",")              
+    }                    
     if len(tradeDirection) == 0 {
         tradeDirection = "cancel" 
-        println(tradeDirection)     
     }  else if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
         tradeDirection = tradeDirection[1:]
     }
@@ -464,11 +512,13 @@ func cleanFlagArguments() {
     if globalOffsetFlag[0] == ' ' || globalOffsetFlag[0] == '=' {
         globalOffsetFlag = globalOffsetFlag[1:]
     }
-    globalOffset, _ = strconv.ParseFloat(globalOffsetFlag, 64)
+
+    globalOffset = parseFloatHandleErr(globalOffsetFlag)
     if positionMultiplierFlag[0] == ' ' || positionMultiplierFlag[0] == '=' {
         positionMultiplierFlag = positionMultiplierFlag[1:]
     }
-    positionMultiplier, _ = strconv.ParseFloat(positionMultiplierFlag, 64)
+
+    positionMultiplier = parseFloatHandleErr(positionMultiplierFlag)
     if mode[0] == ' ' || mode[0] == '=' {
         mode = mode[1:]
     }
@@ -485,8 +535,10 @@ func cleanFlagArguments() {
             mode = "server"
         }
     } else {
-        if mode[0:2] == "ca" || mode[0:2] == "Ca" || mode[0:2] == "CA" || mode[0:2] == "cA" {
+        // if mode[0:2] == "ca" || mode[0:2] == "Ca" || mode[0:2] == "CA" || mode[0:2] == "cA" {
+        if strings.ToLower(mode[0:2]) == "ca" {
             mode = "cancel"
+            println("we set mode to cancel")
         }  else if mode[0:2] == "cl" || mode[0:2] == "Cl" || mode[0:2] == "CL" || mode[0:2] == "cL" {
             mode = "close"
         }  else {
@@ -496,21 +548,7 @@ func cleanFlagArguments() {
     // if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
     //     tradeDirection = tradeDirection[1:]
     // }
-    // if tradeDirection[0] == 's' || tradeDirection[0] == 'S' {
-    //     tradeDirection = "SELL"
-    // } else if tradeDirection[0] == 'l' || tradeDirection[0] == 'L' {
-    //     tradeDirection = "BUY"
-    // } else {
-    //     log.Fatal("Direction flag used with an unsuitable argument.")        
-    // }
-    // if globalOffsetFlag[0] == ' ' || globalOffsetFlag[0] == '=' {
-    //     globalOffsetFlag = globalOffsetFlag[1:]
-    // }
-    // globalOffset, _ = strconv.ParseFloat(globalOffsetFlag, 64)
-    // if positionMultiplierFlag[0] == ' ' || positionMultiplierFlag[0] == '=' {
-    //     positionMultiplierFlag = positionMultiplierFlag[1:]
-    // }
-    // positionMultiplier, _ = strconv.ParseFloat(positionMultiplierFlag, 64)
+
     // println("mode flag is " + mode[0:2])
     // if mode[0] == ' ' || mode[0] == '=' {
     //     mode = mode[1:]
@@ -530,8 +568,6 @@ func cleanFlagArguments() {
     // }
     // println(mode)
 }
-
-
 
 func getTradingSymbol(asset string) string {
     return asset + "BTC"
@@ -554,6 +590,52 @@ func trimTrailingZeros(str string) string {
     return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(str, "000"), "00"),"0")
 }
 
+func fillPriceMapFromTickers() {
+    for _, symbolTicker := range priceSlice {
+        prices[symbolTicker.Symbol] = symbolTicker.Price
+    }
+}
+
+func Map(vs []string, f func(string) string) []string {
+    vsm := make([]string, len(vs))
+    for i, v := range vs {
+        vsm[i] = f(v)
+    }
+    return vsm
+}
+
+func Filter(vs []*binance.SymbolPrice, f func(*binance.SymbolPrice) bool) []*binance.SymbolPrice {
+    vsf := make([]*binance.SymbolPrice, 0)
+    for _, v := range vs {
+        if f(v) {
+            vsf = append(vsf, v)
+        }
+    }
+    return vsf
+}
+
+func Index(vs []string, t string) int {
+    for i, v := range vs {
+        if v == t {
+            return i
+        }
+    }
+    return -1
+}
+
+func Includes(vs []string, t string) bool {
+    return Index(vs, t) >= 0
+}
+
+func isSymbolABTCTicker(s *binance.SymbolPrice) bool {
+    index := strings.Index(s.Symbol, "BTC")
+    if index != 0 && index != -1 {
+        return true
+    } else {
+        return false
+    }
+}
+
 //end getopt initialization
 //invoke like ./main -dir=short -mult=1.0
 /*
@@ -565,36 +647,65 @@ func main() {
 
     getopt.Parse()
     cleanFlagArguments()
+    // println("we madddd")
+    // return
     // printFlagArguments()
-    println("made client")
-    println(mode)
-    
-    // if mode == "market" {
-    //     //line 630
-    //     if len(pairsFlag) == 0 {
-    //         marketOrders(client, stringToSide(tradeDirection), marginAccount.UserAssets)            
-    //     } else {
-    //         marketOrders(client, stringToSide(tradeDirection), convertPairsToBinanceUserAssets(pairs))
-    //     }
-    // } else if mode == "limit" {
-    //     // limitOrders(client, stringToSide(tradeDirection), globalOffset, marginAccount.UserAssets)
-    //     if len(pairsFlag) == 0 {
-    //         limitOrders(client, stringToSide(tradeDirection), globalOffset, marginAccount.UserAssets)
-    //     } else {
-    //         println("we are just doing pairssss")
-    //         limitOrders(client, stringToSide(tradeDirection), globalOffset, convertPairsToBinanceUserAssets(pairs))
-    //     }
-    // }
+    println("Starting with mode - " + mode)
+
+    account, _  := client.NewGetAccountService().Do(context.Background())  
+
+    if len(pairs) >= 1 {
+        priceSlice, _ = client.NewListPricesService().Symbol(strings.Join(Map(pairs, getTradingSymbol), ",")).Do(context.Background())
+    // } else if len(pairs) == 1 {
+    //     // returnedPrice, _ := client.NewListPricesService().Symbol(strings.Join(pairs, ",")).Do(context.Background())
+    //     // prices = append(prices, returnedPrice)
+    //     // priceSlice, _ = client.NewListPricesService().Symbol(getTradingSymbol(pairs[0])).Do(context.Background())        
+    //     priceSlice, _ = client.NewListPricesService().Symbol(pairs[0]).Do(context.Background())        
+    } else {
+        priceSlice, _ = client.NewListPricesService().Do(context.Background())
+        // fmt.Println(priceSlice)
+    }
+    priceSlice = Filter(priceSlice, isSymbolABTCTicker)
+    fillPriceMapFromTickers()
+
+    openSpotPositions := getOpenSpotPositions(account.Balances)      
+    // fmt.Print(openSpotPositions)
     if mode == "market" {
-        // marketOrders(client, stringToSide(tradeDirection))
+        //if we don't have 0.006 BTC, just return. That is currently 2% of account size
+        if openSpotPositions["BTC"] < 0.004 {
+            println("We did not have enough BTC to enter a new position.")
+            return
+        }           
+        marketOrders(client, stringToSide(tradeDirection))
+        if slFlag != "" {
+        // set OCO stop/TP orders
+            for _, tp := range tps {
+                highEntry := entries[1]
+                numCoins := calculateNumberOfCoinsToBuy(highEntry)
+                size := calculateOrderSizeFromPrecision(pairs[0], numCoins/2) 
+                println(size)
+                btcPrice := satsToBitcoin(tp)
+                println(btcPrice)
+                o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(slFlag))).
+                StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(slFlag))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
+                if err!= nil {
+                    fmt.Println(err)
+                }
+                fmt.Println(o)
+            }
+        }
     } else if mode == "limit" {
-        // limitOrders(client, stringToSide(tradeDirection), globalOffset)
+        //if we don't have 0.006 BTC, just return. That is currently 2% of account size
+        if openSpotPositions["BTC"] < 0.004 {
+            println("We did not have enough BTC to enter a new position.")
+            return
+        }        
+        limitOrders(client, stringToSide(tradeDirection), globalOffset)
     } else if mode == "account" {
         account, _  := client.NewGetAccountService().Do(context.Background())
         println(account)        
     } else if mode == "cancel" {
         //getSpotAccount
-        account, _  := client.NewGetAccountService().Do(context.Background())
         
         //TODO: Convert to floatCopy that just has all the trading pairs
         //getOpenSpotPositions      
@@ -603,9 +714,8 @@ func main() {
         //cancel the open spot orders            
         cancelSpotOrders(getOpenSpotOrders(openSpotPositions))     
     } else if mode == "close" {
-        //getSpotAccount
         account, _  := client.NewGetAccountService().Do(context.Background())
-        fmt.Println(account.Balances)
+        // fmt.Println(account.Balances)
         //getOpenSpotPositions      
         openSpotPositions := getOpenSpotPositions(account.Balances)
 
@@ -624,44 +734,73 @@ func main() {
 //TODO: Get list of coins NOT to close from file provided at execution time
 func getOpenSpotPositions(balances []binance.Balance) map[string]float64 {
     openSpotPositions := make(map[string]float64)  
-    //get the pairs with open spot positions              
-    // for i, balance := range balances {
+    //get the pairs with open spot positions
     for _, balance := range balances {
-        // if balance.Asset == "HBAR" { continue }
         if isNonTradingCoin(balance.Asset) { continue }
-        floatFree, errFree := strconv.ParseFloat(balance.Free, 64)
-        if errFree != nil {
-            log.Fatal(errFree)
+        // if balance.Asset == "BTC" { continue }     
+        if balance.Asset == "USDT" { continue }     
+        if balance.Asset == "VTHO" { continue }
+
+        if len(pairs) > 0 && !Includes(pairs, balance.Asset) && balance.Asset != "BTC" {
+            continue
         }
-        floatLocked, errLocked := strconv.ParseFloat(balance.Locked, 64)
-        if errFree != nil {
-            log.Fatal(errLocked)
-        }            
+
+        floatFree := parseFloatHandleErr(balance.Free)
+
+        if balance.Asset == "BTC" {
+            openSpotPositions[balance.Asset] = floatFree
+            continue
+        }
+
+        floatLocked := parseFloatHandleErr(balance.Locked)          
         if (floatFree == 0 && floatLocked == 0) { continue }
-        // println("balance " + strconv.Itoa(i) + ":" + balance.Asset)
-        // println("Free: " + balance.Free + ", Locked: " + balance.Locked)
+
+
+        priceFloat := parseFloatHandleErr(prices[getTradingSymbol(balance.Asset)])
+        if (floatFree + floatLocked) * priceFloat < minimumOrderSize {
+            continue
+        }
         openSpotPositions[balance.Asset] = floatFree + floatLocked
     }
     return openSpotPositions
 }
 
 func closeSpotPositions(openPositions map[string]float64) {
-    println("closign SPOT START")    
-    for k, v := range openPositions {
-        if k == "BTC" { continue }     
-        println(getTradingSymbol(k))
-        amt := calculateOrderSizeFromPrecision(k, v, positionMultiplier)
-        if amt == "0.0" { continue }
-        println(amt)
-        spotCloseOrder, spotOrderErr := client.NewCreateOrderService().Symbol(getTradingSymbol(k)).
-        Side(binance.SideTypeSell).Type(binance.OrderTypeMarket).
-        Quantity(calculateOrderSizeFromPrecision(k, v, positionMultiplier)).Do(context.Background())
-        println(spotCloseOrder)
-        if spotOrderErr != nil {
-            fmt.Println(spotOrderErr)
+    if len(pairs) > 0 {
+        for _, p := range pairs {
+            println(p)
+            tradingSymbol := getTradingSymbol(p)
+            amt := calculateOrderSizeFromPrecision(tradingSymbol, openPositions[p])
+            if amt == "0.0" { continue }
+
+            println("now hee")
+            // numCoins := calculateNumberOfCoinsToBuy(highEntry)
+            // size := calculateOrderSizeFromPrecision(asset, numCoins*2) 
+            println(calculateOrderSizeFromPrecision(p, openPositions[p]))
+            spotCloseOrder, spotOrderErr := client.NewCreateOrderService().Symbol(tradingSymbol).
+            Side(binance.SideTypeSell).Type(binance.OrderTypeMarket).
+            Quantity(calculateOrderSizeFromPrecision(p, openPositions[p])).Do(context.Background())
+            println(spotCloseOrder)
+            if spotOrderErr != nil {
+                fmt.Println(spotOrderErr)
+            }        
+        }       
+    } else {
+        for k, v := range openPositions {
+            if k == "BTC" { continue }     
+            println(getTradingSymbol(k))
+            amt := calculateOrderSizeFromPrecision(k, v)
+            if amt == "0.0" { continue }
+
+            spotCloseOrder, spotOrderErr := client.NewCreateOrderService().Symbol(getTradingSymbol(k)).
+            Side(binance.SideTypeSell).Type(binance.OrderTypeMarket).
+            Quantity(calculateOrderSizeFromPrecision(k, v*positionMultiplier)).Do(context.Background())
+            println(spotCloseOrder)
+            if spotOrderErr != nil {
+                fmt.Println(spotOrderErr)
+            }
         }
     }
-    println("closign SPOT END")    
 }
 
 func setupServer() {
@@ -712,37 +851,39 @@ func serveTemplate(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-// func marketBuyHandler(w http.ResponseWriter, r *http.Request) {
-//     tradeDirection = "BUY"    
-//     // marketOrders()
-//     marketOrders(client, stringToSide(tradeDirection))    
-//     // openDirection = "BUY"
-//     fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
-// }
+/***
+    func marketBuyHandler(w http.ResponseWriter, r *http.Request) {
+        tradeDirection = "BUY"    
+        // marketOrders()
+        marketOrders(client, stringToSide(tradeDirection))    
+        // openDirection = "BUY"
+        fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+    }
 
-// func marketSellHandler(w http.ResponseWriter, r *http.Request) {
-//     tradeDirection = "SELL"
-//     // marketOrders()
-//     marketOrders(client, stringToSide(tradeDirection))        
-//     openDirection = "SELL"
-//     fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
-// }
+    func marketSellHandler(w http.ResponseWriter, r *http.Request) {
+        tradeDirection = "SELL"
+        // marketOrders()
+        marketOrders(client, stringToSide(tradeDirection))        
+        openDirection = "SELL"
+        fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+    }
 
-// func limitBuyHandler(w http.ResponseWriter, r *http.Request) {
-//     tradeDirection = "BUY"    
-//     // limitOrders()
-//     limitOrders(client, stringToSide(tradeDirection), globalOffset)    
-//     openDirection = "BUY"
-//     fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
-// }
+    func limitBuyHandler(w http.ResponseWriter, r *http.Request) {
+        tradeDirection = "BUY"    
+        // limitOrders()
+        limitOrders(client, stringToSide(tradeDirection), globalOffset)    
+        openDirection = "BUY"
+        fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+    }
 
-// func limitSellHandler(w http.ResponseWriter, r *http.Request) {
-//     tradeDirection = "SELL"    
-//     // marketOrders()
-//     limitOrders(client, stringToSide(tradeDirection), globalOffset)    
-//     openDirection = "SELL"
-//     fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
-// }
+    func limitSellHandler(w http.ResponseWriter, r *http.Request) {
+        tradeDirection = "SELL"    
+        // marketOrders()
+        limitOrders(client, stringToSide(tradeDirection), globalOffset)    
+        openDirection = "SELL"
+        fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+    }
+***/
 
 func cancelHandler(w http.ResponseWriter, r *http.Request) {
     // cancelOrders(client, getOrders(client))    
@@ -756,7 +897,15 @@ func closeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func cancelSpotOrders(orders []*binance.Order) {
-    for _, order := range orders {
+    // for _, pair := range pairs {
+    //     _, err := client.NewCancelOrderService().Symbol(order.Symbol).OrderID(order.OrderID).Do(context.Background())
+    //     if err != nil {
+    //         fmt.Println(err)
+    //         return
+    //     }        
+    // }
+    for _, order := range orders {      
+        println(order.Symbol)
         _, err := client.NewCancelOrderService().Symbol(order.Symbol).OrderID(order.OrderID).Do(context.Background())
         if err != nil {
             fmt.Println(err)
@@ -767,16 +916,33 @@ func cancelSpotOrders(orders []*binance.Order) {
    
 func getOpenSpotOrders(openPositions map[string]float64) []*binance.Order {
     openOrdersAcrossAllPairs := []*binance.Order{}
-    for asset := range openPositions {
-        openOrders, err := client.NewListOpenOrdersService().Symbol(asset).
-            Do(context.Background())
-        if err != nil {
-            fmt.Println(err)
-            return nil
-        }
-        for _, order := range openOrders {
-            // fmt.Println(order)            
-            openOrdersAcrossAllPairs = append(openOrdersAcrossAllPairs, order)        
+    if len(pairs) > 0 {
+        for _, asset := range pairs {
+            openOrders, err := client.NewListOpenOrdersService().Symbol(getTradingSymbol(asset)).Do(context.Background())
+            if err != nil {
+                fmt.Println(err)
+                return nil
+            }
+            for _, order := range openOrders {
+                fmt.Println(order)            
+                openOrdersAcrossAllPairs = append(openOrdersAcrossAllPairs, order)        
+            }
+        }        
+    } else {
+        for asset := range openPositions {
+            println("canceling for " + asset)
+            if asset == "BTC" {
+                continue
+            }
+            openOrders, err := client.NewListOpenOrdersService().Symbol(getTradingSymbol(asset)).Do(context.Background())
+            if err != nil {
+                fmt.Println(err)
+                return nil
+            }
+            for _, order := range openOrders {
+                fmt.Println(order)            
+                openOrdersAcrossAllPairs = append(openOrdersAcrossAllPairs, order)        
+            }
         }
     }
     return openOrdersAcrossAllPairs
@@ -823,18 +989,95 @@ func round(x, unit float64) float64 {
     return math.Round(x/unit) * unit
 }
 
+func satsToBitcoin(u string) float64 {
+    ii, _ := strconv.Atoi(u)
+    return float64(ii) / math.Pow10(int(8))
+}
+
+func btcToSats(u string) int64 {
+    ii, _ := strconv.ParseFloat(u,64)
+    return int64(float64(ii) * math.Pow10(int(8)))
+}
+
+
+func ifOrderSizeMeetsMinimum(numCoins float64, entry string) bool {
+    entryNum, _ := strconv.ParseFloat(entry, 64)
+    if numCoins * entryNum >= minimumOrderSize {
+        return true
+    } else {
+        return false
+    }
+}
+
 /*
  * function limitOrders
  * params: client
  ************************
  */
-// func limitOrders(client *binance.Client, direction binance.SideType, offset float64) {
-//     prices := getPrices(client)
+func limitOrders(client *binance.Client, direction binance.SideType, offset float64) {
+    for globalPairIndex, _ := range pairs {
+        reversedIndex := len(pairs) - globalPairIndex - 1
+        for _, entry := range entries {
+            btcPrice := satsToBitcoin(entry)
+            numCoins := calculateNumberOfCoinsToBuy(entry)/2
+            if !ifOrderSizeMeetsMinimum(numCoins, entry) {
+                continue
+            }
+            size := calculateOrderSizeFromPrecision(pairs[reversedIndex], calculateNumberOfCoinsToBuy(entry)/2)
+            limitOrder(client, direction, getTradingSymbol(pairs[reversedIndex]), offset, size, fmt.Sprintf("%.8f", btcPrice))//calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]))
+        }
+    }
+}
+
+// /*
+//  * function stopMarketOrders
+//  * params: client
+//  ************************
+//  */
+// func stopMarketOrders(client *binance.Client, direction binance.SideType, offset float64, isReduceOnly binance.OrderReduceOnly, pairs ...string) {
+//     prices := getPrices(client)  
 //     for globalPairIndex, _ := range pairs {
-//         reversedIndex := len(pairs) - globalPairIndex - 1
-//         size := calculateOrderSizeFromPrecision(positionMultiplier * positionSizes[pairs[reversedIndex]], pairs[reversedIndex])
-//         limitOrder(client, direction, pairs[reversedIndex], offset, size, calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]))
+//         reversedIndex := len(pairs) - globalPairIndex - 1        
+//         size := calculateOrderSizeFromPrecision(pairs[reversedIndex], calculateNumberOfCoinsToBuy)        
+//         stopMarketOrder(client, getOppositeDirection(direction), pairs[reversedIndex], size, calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]), isReduceOnly)
 //     }
+// }
+
+// /*
+//  * function stopMarketOrder
+//  * params: client
+//  ************************
+//  *///error-returning
+// func stopMarketOrder(client *binance.Client, direction binance.SideType, asset string, size string, price string, isReduceOnly binance.OrderReduceOnly) error {
+//     order, err := client.NewCreateOrderService().Symbol(asset).
+//         Side(direction).Type(binance.OrderTypeStopLoss).
+//         Quantity(size).ReduceOnly(isReduceOnly).
+//         StopPrice(price).Do(context.Background())
+//     if err != nil {
+//         fmt.Println(err)
+//         return err
+//     }
+//     // openPositions[asset] -= positionMultiplier * positionSizes[asset]        
+//     fmt.Println(order)
+//     return nil
+// }
+
+/*
+ * function limitOrder
+ * params: client
+ ************************
+ */
+// func limitOrder(client *binance.Client, direction binance.SideType, asset string, offset float64, size string, price string) {
+//     println("calling limit order")
+//     order, err := client.NewCreateOrderService().Symbol(asset).
+//             Side(direction).Type(binance.OrderTypeLimit).
+//             TimeInForce(binance.TimeInForceTypeGTC).Quantity(size).
+//             Price(price).Do(context.Background())
+//     if err != nil {
+//         fmt.Println(err)
+//         return
+//     }
+//     fmt.Println(order)
 // }
 
 /*
@@ -842,27 +1085,82 @@ func round(x, unit float64) float64 {
  * params: priceString string, offset float64, direction binance.SideType
  ************************
  */
-func calculateOrderSizeFromPrecision(asset string, size float64, mult float64) string {
+func calculateOrderSizeFromPrecision(asset string, size float64) string {
     size = math.Floor(size * math.Pow10(positionPrecisions[asset]))/float64(math.Pow10(positionPrecisions[asset]))
     if positionPrecisions[asset] == 0 {
-        return fmt.Sprintf("%d", int64(mult*size))
+        return fmt.Sprintf("%d", int64(positionMultiplier*size))
     } else if (positionPrecisions[asset] == 1) { 
-        return fmt.Sprintf("%.1f", mult*size)
+        return fmt.Sprintf("%.1f", positionMultiplier*size)
     } else if (positionPrecisions[asset] == 2) { 
-        return fmt.Sprintf("%.2f", mult*size)
+        return fmt.Sprintf("%.2f", positionMultiplier*size)
     } else if (positionPrecisions[asset] == 3) {
-        return fmt.Sprintf("%.3f", mult*size)
+        return fmt.Sprintf("%.3f", positionMultiplier*size)
     } else if (positionPrecisions[asset] == 4) { 
-        return fmt.Sprintf("%.4f", mult*size)
+        return fmt.Sprintf("%.4f", positionMultiplier*size)
     } else if (positionPrecisions[asset] == 5) { 
-        return fmt.Sprintf("%.5f", mult*size)
+        return fmt.Sprintf("%.5f", positionMultiplier*size)
     } else if (positionPrecisions[asset] == 6) { 
-        return fmt.Sprintf("%.6f", mult*size)
+        return fmt.Sprintf("%.6f", positionMultiplier*size)
     } else if (positionPrecisions[asset] == 7) { 
-        return fmt.Sprintf("%.7f", mult*size)
+        return fmt.Sprintf("%.7f", positionMultiplier*size)
     } else { 
-        return fmt.Sprintf("%.8f", mult*size) 
+        return fmt.Sprintf("%.8f", positionMultiplier*size) 
     }
+}
+
+/*
+ * function calculateOrderSizeFromPrecision
+ * params: priceString string, offset float64, direction binance.SideType
+ ************************
+ */
+func calculateOrderPriceFromPrecision(asset string, price float64) string {
+    price = math.Floor(price * math.Pow10(pricePrecisions[asset]))/float64(math.Pow10(pricePrecisions[asset]))
+    if positionPrecisions[asset] == 0 {
+        return fmt.Sprintf("%d", int64(price))
+    } else if (positionPrecisions[asset] == 1) { 
+        return fmt.Sprintf("%.1f", price)
+    } else if (positionPrecisions[asset] == 2) { 
+        return fmt.Sprintf("%.2f", price)
+    } else if (positionPrecisions[asset] == 3) {
+        return fmt.Sprintf("%.3f", price)
+    } else if (positionPrecisions[asset] == 4) { 
+        return fmt.Sprintf("%.4f", price)
+    } else if (positionPrecisions[asset] == 5) { 
+        return fmt.Sprintf("%.5f", price)
+    } else if (positionPrecisions[asset] == 6) { 
+        return fmt.Sprintf("%.6f", price)
+    } else if (positionPrecisions[asset] == 7) { 
+        return fmt.Sprintf("%.7f", price)
+    } else { 
+        return fmt.Sprintf("%.8f", price) 
+    }
+}
+
+/*
+ * function parseFloatHandleErr
+ * params: floatString string
+ * returns: float64
+ ************************
+ */
+func parseFloatHandleErr(floatString string) float64 {
+    ff, e := strconv.ParseFloat(floatString, 64)
+    if e != nil {
+        log.Fatal("Had an error when parsing float out of the following string: " + floatString)
+    }
+    return ff
+}
+
+//get the 
+func calculateNumberOfCoinsToBuy(price string) float64 {
+    ff := parseFloatHandleErr(price)
+    numCoins := positionSize/ff
+    // println(numCoins* math.Pow10(int(8)) )   
+    return numCoins * math.Pow10(int(8))
+    // if numCoins % 2 == 0 {
+    //     return numCoins
+    // } else {
+    //     return numCoins - 1
+    // }
 }
 
 /*
@@ -899,7 +1197,8 @@ func calculateOrderSizeFromPrecision(asset string, size float64, mult float64) s
  ************************
  */
 func limitOrder(client *binance.Client, direction binance.SideType, asset string, offset float64, size string, price string) {
-   order, err := client.NewCreateOrderService().Symbol(asset).
+    println("calling limit order")
+    order, err := client.NewCreateOrderService().Symbol(asset).
             Side(direction).Type(binance.OrderTypeLimit).
             TimeInForce(binance.TimeInForceTypeGTC).Quantity(size).
             Price(price).Do(context.Background())
@@ -910,31 +1209,55 @@ func limitOrder(client *binance.Client, direction binance.SideType, asset string
     fmt.Println(order)
 }
 
+// for globalPairIndex, _ := range pairs {
+//         reversedIndex := len(pairs) - globalPairIndex - 1
+//         println(reversedIndex)
+//         // size := calculateOrderSizeFromPrecision(pairs[reversedIndex], positionMultiplier * positionSizes[pairs[reversedIndex]])
+//         println(entries)
+//         for _, entry := range entries {
+//             println("entry is ")
+//             println(entry)
+//             btcPrice := satsToBitcoin(entry)
+//             size := calculateOrderSizeFromPrecision(pairs[reversedIndex], calculateNumberOfCoinsToBuy(entry)/2)        
+//             println(size)
+//             limitOrder(client, direction, getTradingSymbol(pairs[reversedIndex]), offset, size, fmt.Sprintf("%.8f", btcPrice))//calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]))
+//         }
+//         // limitOrder(client, direction, pairs[reversedIndex], offset, size, //calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]))
+//     }
+
+// func calculateOrderSizeFromPrecision(asset string, size float64) string {
+
 /*
  * function marketOrders
  * params: client
  ************************
 //  */
-// func marketOrders(client *binance.Client, direction binance.SideType) {
-//     for _, asset := range pairs {
-//         marketOrder(client, direction, asset, calculateOrderSizeFromPrecision(positionMultiplier * positionSizes[asset], asset))
-//     }
-// }
+func marketOrders(client *binance.Client, direction binance.SideType) {
+    for i, asset := range pairs {
+        highEntry := entries[i*2 + 1]
+        numCoins := calculateNumberOfCoinsToBuy(highEntry)
+        size := calculateOrderSizeFromPrecision(asset, numCoins*2) 
+        if !ifOrderSizeMeetsMinimum(numCoins, highEntry) {
+            continue
+        }                       
+        marketOrder(client, direction, getTradingSymbol(asset), size)
+    }
+}
 
 /*
  * function marketOrder
  * params: client
  ************************
  *///error-returning
-// func marketOrder(client *binance.Client, direction binance.SideType, asset string, size string) error {
-//     order, err := client.NewCreateOrderService().Symbol(asset).
-//         Side(direction).Type(binance.OrderTypeMarket).
-//         Quantity(size).Do(context.Background())
-//     if err != nil {
-//         fmt.Println(err)
-//         return err
-//     }
-//     openPositions[asset] -= positionMultiplier * positionSizes[asset]        
-//     fmt.Println(order)
-//     return nil
-// }
+func marketOrder(client *binance.Client, direction binance.SideType, asset string, size string) error {
+    order, err := client.NewCreateOrderService().Symbol(asset).
+        Side(direction).Type(binance.OrderTypeMarket).
+        Quantity(size).Do(context.Background())
+    if err != nil {
+        fmt.Println(err)
+        return err
+    }
+    // openPositions[asset] -= positionMultiplier * positionSizes[asset]        
+    fmt.Println(order)
+    return nil
+}
