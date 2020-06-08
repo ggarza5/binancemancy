@@ -916,7 +916,7 @@ func cancelSpotOrders(orders []*binance.Order) {
    
 func getOpenSpotOrders(openPositions map[string]float64) []*binance.Order {
     openOrdersAcrossAllPairs := []*binance.Order{}
-    if len(pairs) > 0 {
+    if len(pairsFlag) > 0 {
         for _, asset := range pairs {
             openOrders, err := client.NewListOpenOrdersService().Symbol(getTradingSymbol(asset)).Do(context.Background())
             if err != nil {
@@ -930,7 +930,7 @@ func getOpenSpotOrders(openPositions map[string]float64) []*binance.Order {
         }        
     } else {
         for asset := range openPositions {
-            println("canceling for " + asset)
+            println("getting open spot orders for " + asset)
             if asset == "BTC" {
                 continue
             }
