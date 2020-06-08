@@ -46,7 +46,7 @@ var (
     //current position open = 0
     */
     client = binance.NewClient(apiKey, secretKey)
-    pairs = []string{"BCHUSDT", "XRPUSDT", "EOSUSDT", "LTCUSDT", "TRXUSDT", "ETCUSDT", "LINKUSDT", "XLMUSDT", "ADAUSDT", "XMRUSDT", "DASHUSDT", "ZECUSDT", "XTZUSDT", "BNBUSDT", "ATOMUSDT", "ONTUSDT", "IOTAUSDT", "BATUSDT", "VETUSDT", "NEOUSDT"}
+    pairs = []string{"BCHUSDT", "XRPUSDT", "EOSUSDT", "LTCUSDT", "TRXUSDT", "ETCUSDT", "LINKUSDT", "XLMUSDT", "ADAUSDT", "XMRUSDT", "DASHUSDT", "ZECUSDT", "XTZUSDT", "BNBUSDT", "ATOMUSDT", "ONTUSDT", "IOTAUSDT", "BATUSDT", "VETUSDT", "NEOUSDT", "THETAUSDT"}
     //I want to be able to have 3 positions take half of my margin
     //for testing 
     positionSizes = map[string]float64{
@@ -72,6 +72,7 @@ var (
         "NEOUSDT":12,
         "QTUMUSDT":100,
         "IOSTUSDT":20000,
+        "THETAUSDT":800,
     }
 
     openPositions = map[string]float64{
@@ -96,7 +97,8 @@ var (
         "VETUSDT":0,
         "NEOUSDT":0,
         "QTUMUSDT":0,
-        "IOSTUSDT":0,        
+        "IOSTUSDT":0,
+        "THETAUSDT":0,        
     }
 
     pricePrecisions = map[string]int{
@@ -121,7 +123,8 @@ var (
         "VETUSDT":6,
         "NEOUSDT":3,
         "QTUMUSDT":3,
-        "IOSTUSDT":6,        
+        "IOSTUSDT":6,
+        "THETAUSDT":4,     
     } 
 
     positionPrecisions = map[string]int{
@@ -146,7 +149,8 @@ var (
         "VETUSDT":0,
         "NEOUSDT":2,
         "QTUMUSDT":1,
-        "IOSTUSDT":0,        
+        "IOSTUSDT":0,
+        "THETAUSDT":1,   
     }              
 
     // openPositions = []float64{0,0,0,0,0,0,0,0,0,0,0,0,0,0}
