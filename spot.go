@@ -219,6 +219,7 @@ var (
         "TCT":0,
         "AST":0,
         "NANO":2,
+        "SOL":0,
     } 
 
     pricePrecisions = map[string]int {
@@ -396,6 +397,7 @@ var (
         "XRP":8,
         "AST":8,
         "NANO":7,
+        "SOL":8,
     }
     positionSizes = map[string]float64{
         "ICX":1,
