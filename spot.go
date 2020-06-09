@@ -659,14 +659,8 @@ func main() {
 
 	if len(pairs) >= 1 {
 		priceSlice, _ = client.NewListPricesService().Symbol(strings.Join(Map(pairs, getTradingSymbol), ",")).Do(context.Background())
-		// } else if len(pairs) == 1 {
-		//     // returnedPrice, _ := client.NewListPricesService().Symbol(strings.Join(pairs, ",")).Do(context.Background())
-		//     // prices = append(prices, returnedPrice)
-		//     // priceSlice, _ = client.NewListPricesService().Symbol(getTradingSymbol(pairs[0])).Do(context.Background())
-		//     priceSlice, _ = client.NewListPricesService().Symbol(pairs[0]).Do(context.Background())
 	} else {
 		priceSlice, _ = client.NewListPricesService().Do(context.Background())
-		// fmt.Println(priceSlice)
 	}
 	priceSlice = Filter(priceSlice, isSymbolABTCTicker)
 	fillPriceMapFromTickers()
@@ -679,13 +673,22 @@ func main() {
 			println("We did not have enough BTC to enter a new position.")
 			return
 		}
-		marketOrders(client, stringToSide(tradeDirection))
+		// marketOrders(client, stringToSide(tradeDirection))
 		if slFlag != "" {
 			// set OCO stop/TP orders
 			for _, tp := range tps {
+                //if price is above TP, CONTINUE!
+                // println(tp)
+                currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
+                if (satsToBitcoin(tp) < currentPrice) {
+                    fmt.Println(satsToBitcoin(tp))
+                    println("couldnt do this order")
+                    continue 
+                }
+                marketOrders(client, stringToSide(tradeDirection))                
 				highEntry := entries[1]
 				numCoins := calculateNumberOfCoinsToBuy(highEntry)
-				size := calculateOrderSizeFromPrecision(pairs[0], numCoins/2)
+				size := calculateOrderSizeFromPrecision(pairs[0], numCoins)
 				println(size)
 				btcPrice := satsToBitcoin(tp)
 				println(btcPrice)
@@ -1251,7 +1254,7 @@ func marketOrders(client *binance.Client, direction binance.SideType) {
 	for i, asset := range pairs {
 		highEntry := entries[i*2+1]
 		numCoins := calculateNumberOfCoinsToBuy(highEntry)
-		size := calculateOrderSizeFromPrecision(asset, numCoins*2)
+		size := calculateOrderSizeFromPrecision(asset, numCoins)
 		if !ifOrderSizeMeetsMinimum(numCoins, highEntry) {
 			continue
 		}
