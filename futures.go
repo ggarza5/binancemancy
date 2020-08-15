@@ -5,15 +5,19 @@ import (
     "net/http"
     "github.com/ggarza5/go-binance-futures"
     "github.com/pborman/getopt/v2"
+    "github.com/ggarza5/technical-indicators"
     "context"
     "log"
     "html/template"
     "os"
     "path/filepath"
     "math"
+    "math/rand"
     "strconv"
     _ "strings"
 )
+
+type mfloat []float64
 
 var (
     apiKey = "jIyd39L4YfD5CRvygwh5LY1IVilQ38NXY5RshUxKGwR1Sjj6ZGzynkxfK1p2jX0c"
@@ -51,24 +55,24 @@ var (
     //for testing 
     positionSizes = map[string]float64{
         "BCHUSDT":0.5,
-        "XRPUSDT":1100,
+        "XRPUSDT":1000,
         "EOSUSDT":80,
         "LTCUSDT":3,
         "TRXUSDT":11500,
         "ETCUSDT":20,
-        "LINKUSDT":60,
+        "LINKUSDT":50,
         "XLMUSDT":3000,
-        "ADAUSDT":3000,
+        "ADAUSDT":2500,
         "XMRUSDT":1.75,
         "DASHUSDT":2,
-        "ZECUSDT":4,
-        "XTZUSDT":57,
+        "ZECUSDT":3,
+        "XTZUSDT":50,
         "ATOMUSDT":50,
         "BNBUSDT":6,
         "ONTUSDT":200,
-        "IOTAUSDT":1400,
+        "IOTAUSDT":700,
         "BATUSDT":1000,
-        "VETUSDT":25000,
+        "VETUSDT":12500,
         "NEOUSDT":12,
         "QTUMUSDT":100,
         "IOSTUSDT":20000,
@@ -158,6 +162,19 @@ var (
     // positionPrecisions = []int{3,1,1,3,0,2,2,0,0,3,3,3,1,2}
 
 )
+
+func Index(vs []string, t string) int {
+    for i, v := range vs {
+        if v == t {
+            return i
+        }
+    }
+    return -1
+}
+
+func Includes(vs []string, t string) bool {
+    return Index(vs, t) >= 0
+}
 
 //begin getopt initialization 
 
@@ -258,12 +275,48 @@ var ltcFifteen = make([]*binance.WsKlineEvent, 0)
 var ltcFifteenIndex = 0
 var ltcFifteenRSI = 0.0
 
+var dataCloses = make([]string, 0)
+var dataClosesInts = make([]int, 0)
+var dataClosesFloats = make([]float64, 32)
+
+var dummyCloses []float64 = []float64{1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 4.0, 1.0, 3.0, 1.0, 2.0, 3.0, 1.0, 4.0, 3.0, 10.0, 1.0, 1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 5.0, 1.0, 3.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 10.0, 1.0, 1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 4.0, 2.0, 1.0, 2.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 4.0, 1.0, 13.0, 1.0, 4.0, 3.0, 10.0, 1.0, 1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 5.0, 1.0, 3.0, 1.0, 1.0, 2.0}
+// var dummyHighs []float64 = []float64{.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 2.0, 1.0, 3.0, 1.0, 1.0, 3.0, 1.0, 4.0, 1.0, 10.0, 1.0}
+// var dummyLows []float64 = []float64{1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 2.0, 1.0, 3.0, 1.0, 1.0, 3.0, 1.0, 4.0, 1.0, 10.0, 1.0}
 func listenOnSocket(client *binance.Client, pair string, timeframe string) {
     wsKlineHandler := func(event *binance.WsKlineEvent) {
         if event.Kline.IsFinal {
-            fmt.Println(event)
+            // fmt.Println(event)
             ltcFifteen = append(ltcFifteen, event)
+            dataCloses = append(dataCloses, event.Kline.Close)
+            i, _ := strconv.Atoi(event.Kline.Close)
+            dataClosesInts = append(dataClosesInts, i)
+            dataClosesFloats = append(dataClosesFloats, float64(i))
+            fmt.Println(dataCloses)
             // marketOrders(client, )
+        }
+        //start calculating Bollinger Bands
+        if len(dummyCloses) >= 20 {
+            middle, upper, lower := indicators.BollingerBands(dummyCloses, 20, 2.0)
+            _, _, _ = middle, upper, lower
+            // fmt.Println(middle)
+            // fmt.Println(upper)
+            // fmt.Println(lower)
+                
+            var dummyHighs []float64
+            var dummyLows []float64
+            for _, f := range(dummyCloses) {
+                dummyHighs = append(dummyHighs, f + rand.Float64())
+                dummyLows = append(dummyLows, f - rand.Float64())
+            }
+
+            // fmt.Println(dummyHighs)
+            conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan := indicators.IchimokuCloud(dummyCloses, dummyLows, dummyHighs, []int{20,60,120,30})
+            _, _, _, _, _ = conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan
+            // fmt.Println(conversionLine)
+            // fmt.Println(baseLine)
+            // fmt.Println(leadSpanA)
+            // fmt.Println(leadSpanB)                        
+            // fmt.Println(lagSpan)
         }
         // fmt.Println(ltcFifteen)
     }
@@ -286,7 +339,7 @@ func listenOnSocket(client *binance.Client, pair string, timeframe string) {
  ************************
  */
 func main() {
-    println("jhhh")
+    println("Starting futures.go")
     getopt.Parse()
     cleanFlagArguments()
     // printFlagArguments()
@@ -305,6 +358,7 @@ func main() {
         closeOpenPositions(client)
     } else if mode == "server" {
         // setupServer()
+        println("Running in server mode.")
         listenOnSocket(client, "BTCUSDT", "1m")
 
     } else if mode == "stopMarket" {

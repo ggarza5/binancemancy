@@ -220,6 +220,7 @@ var (
 		"AST":   0,
 		"NANO":  2,
 		"SOL":   0,
+		"SXP": 0,
 	}
 
 	pricePrecisions = map[string]int{
@@ -398,6 +399,7 @@ var (
 		"AST":   8,
 		"NANO":  7,
 		"SOL":   8,
+		"SXP": 8,
 	}
 	positionSizes = map[string]float64{
 		"ICX":   1,
@@ -489,6 +491,7 @@ func cleanFlagArguments() {
 	if len(slFlag) != 0 {
 		if slFlag[0] == ' ' || slFlag[0] == '=' {
 			slFlag = slFlag[1:]
+			sl = slFlag
 		}
 	}
 	if len(tpFlag) != 0 {
@@ -639,6 +642,35 @@ func isSymbolABTCTicker(s *binance.SymbolPrice) bool {
 	}
 }
 
+func checkAndFixPrices(price string) {
+	//all you need to do is check the number of digits after the decimal
+	// decimalIndex := strings.Index(price, ".")
+	// println(price)
+	// println(decimalIndex)
+	// precision := len(price) - decimalIndex - 2
+	// println(precision)
+	zerosToAdd := 8 - pricePrecisions[pairs[0]]
+	for i, e := range entries {
+		// println(i)
+		fl, _ := strconv.ParseInt(e, 10, 64)
+		// fl := float64(il)
+		println(fl)
+		entries[i] = strconv.FormatInt(fl * int64(math.Pow10(zerosToAdd)), 10)
+		println(entries[i])
+	}
+	for i, t := range tps {
+		fl, _ := strconv.ParseInt(t, 10, 64)		
+		// fl  := float64(il)
+		println(fl)
+		tps[i] = strconv.FormatInt(fl * int64(math.Pow10(zerosToAdd)), 10)
+		println(tps[i])		
+	}	
+	fl, _ := strconv.ParseInt(slFlag, 10, 64)
+	println(fl)
+	sl = strconv.FormatInt(fl * int64(math.Pow10(zerosToAdd)), 10)
+
+}
+
 //end getopt initialization
 //invoke like ./main -dir=short -mult=1.0
 /*
@@ -647,14 +679,8 @@ func isSymbolABTCTicker(s *binance.SymbolPrice) bool {
  ************************
  */
 func main() {
-	println("wsasdasd")
 	getopt.Parse()
 	cleanFlagArguments()
-	// println("we madddd")
-	// return
-	// printFlagArguments()
-	println("Starting with mode - " + mode)
-
 	account, _ := client.NewGetAccountService().Do(context.Background())
 
 	if len(pairs) >= 1 {
@@ -666,23 +692,27 @@ func main() {
 	fillPriceMapFromTickers()
 
 	openSpotPositions := getOpenSpotPositions(account.Balances)
+	// println(openSpotPositions)
 	// fmt.Print(openSpotPositions)
+    currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
 	if mode == "market" {
 		//if we don't have 0.006 BTC, just return. That is currently 2% of account size
 		if openSpotPositions["BTC"] < 0.004 {
 			println("We did not have enough BTC to enter a new position.")
 			return
 		}
-		// marketOrders(client, stringToSide(tradeDirection))
+		
 		if slFlag != "" {
+			checkAndFixPrices(prices[getTradingSymbol(pairs[0])])
 			// set OCO stop/TP orders
 			for _, tp := range tps {
                 //if price is above TP, CONTINUE!
                 // println(tp)
-                currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
                 if (satsToBitcoin(tp) < currentPrice) {
+                	fmt.Println(tp)
                     fmt.Println(satsToBitcoin(tp))
-                    println("couldnt do this order")
+                    fmt.Println(currentPrice)
+                    println("couldnt do this order")                    
                     continue 
                 }
                 marketOrders(client, stringToSide(tradeDirection))                
@@ -692,12 +722,16 @@ func main() {
 				println(size)
 				btcPrice := satsToBitcoin(tp)
 				println(btcPrice)
-				o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(slFlag))).
-					StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(slFlag))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
+				println("now priting sl")
+				println(fmt.Sprintf("%.8f", satsToBitcoin(sl)))
+				println(sl)
+				o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).
+					StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
 				if err != nil {
 					fmt.Println(err)
+				} else {
+					fmt.Println(o)
 				}
-				fmt.Println(o)
 			}
 		}
 	} else if mode == "limit" {
@@ -1009,7 +1043,10 @@ func round(x, unit float64) float64 {
 }
 
 func satsToBitcoin(u string) float64 {
+	// println("in prob func")
+	// println(u)
 	ii, _ := strconv.Atoi(u)
+	// println(ii)
 	return float64(ii) / math.Pow10(int(8))
 }
 
