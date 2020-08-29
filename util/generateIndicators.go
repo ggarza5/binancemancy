@@ -22,11 +22,13 @@ import (
 //Price-vol-time-based bias classifcation
 //MLE calculator for forward-looking/now-casted time-series mean and standard deviation
 //key level detectors - pivot points, horizontal levels that attracted price or required outsized volume or volatility to break
-
+//c-clamp detection
+//flat level detection
 var (
-	filename = ""
-	out      = false
-	symbol   = ""
+	filename  = ""
+	out       = false
+	symbol    = ""
+	indicator = ""
 )
 
 /* function init
@@ -35,9 +37,28 @@ var (
  * Initiates the global flag variables
  */
 func init() {
-	getopt.FlagLong(&filename, "fn", 'f', "filename").SetOptional()
+	getopt.FlagLong(&filename, "fn", 'f', "filename")
+	getopt.FlagLong(&indicator, "Indicators", 'i', "Which indicator to calculate. 'a', 'A', 'all', or 'All' will output files for bollinger bands, ichimoku cloud and VWAP").SetOptional()
 	// getopt.FlagLong(&symbol, "sym", 's', "Symbol that we are generating indicators for").SetOptional()
 	getopt.Flag(&out, 'o', "Whether to write results out to a file or not").SetOptional()
+}
+
+func cleanFlagArguments() {
+	if len(tradeDirection) == 0 {
+		tradeDirection = "cancel"
+	} else if tradeDirection[0] == ' ' || tradeDirection[0] == '=' {
+		tradeDirection = tradeDirection[1:]
+	}
+	if tradeDirection[0] == 's' || tradeDirection[0] == 'S' {
+		tradeDirection = "SELL"
+	} else if tradeDirection[0] == 'l' || tradeDirection[0] == 'L' {
+		tradeDirection = "BUY"
+		println(tradeDirection)
+	} else {
+		if tradeDirection != "cancel" {
+			log.Fatal("Direction flag used with an unsuitable argument.")
+		}
+	}
 }
 
 func main() {
@@ -45,12 +66,15 @@ func main() {
 	if filename == "" {
 		filename = "BTCUSDT-1d-data.csv"
 	}
+	if indicator == "" {
+		println("YOU GOTTA HAVE INDICATOR")
+	} else if indicator == "bands" {
+		println("asdasd")
+	}
 	records, opens, highs, lows, closes := readInData(filename)
 	conv, base, a, b, lag := generateIchi(highs, lows, closes)
 	indicators := [][]float64{conv, base, a, b, lag}
 	_, _ = records, opens
-
-	// if symbol != "" {
 
 	if out {
 		bits := strings.Split(filename, "-")
@@ -58,15 +82,8 @@ func main() {
 		f, err := os.Create(newFilename)
 		check(err)
 
-		// w := io.NewWriter(f)
 		fmt.Fprintln(f, indicators)
 		defer f.Close()
-
-		// w.WriteAll(indicators) // calls Flush internally
-
-		// if err := w.Error(); err != nil {
-		// 	log.Fatalln("error writing csv:", err)
-		// }
 	} else {
 		for _, i := range indicators {
 			fmt.Println(i)
@@ -116,11 +133,10 @@ func readInData(file string) ([][]string, []float64, []float64, []float64, []flo
 func generateIchi(highs []float64, lows []float64, closes []float64) ([]float64, []float64, []float64, []float64, []float64) {
 	ichiParameters := []int{20, 60, 120, 30}
 	conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan := indicators.IchimokuCloud(closes, lows, highs, ichiParameters)
-	// _, _, _, _, _ = conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan
 	return conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan
-	// fmt.Println(conversionLine[len(conversionLine)-20:])
-	// fmt.Println(baseLine[len(baseLine)-20:])
-	// fmt.Println(leadSpanA[len(leadSpanA)-20:])
-	// fmt.Println(leadSpanB[len(leadSpanB)-20:])
-	// fmt.Println(lagSpan[len(lagSpan)-20:])
+}
+
+func generateBands() ([]float64, []float64, []float64) {
+	middle, upper, lower := indicators.BollingerBands(dummyCloses, 20, 2.0)
+	return middle, upper, lower
 }

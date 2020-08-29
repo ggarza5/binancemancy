@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"github.com/ggarza5/go-binance-margin"
 	"github.com/pborman/getopt/v2"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"html/template"
 	"log"
 	"math"
@@ -13,9 +17,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
+	mongoUsername = "admin"
+	mongoHost1    = "cluster0-iy9i2.mongodb.net/test?authSource=admin&replicaSet=Cluster0-shard-0&readPreference=primary&ssl=true"
+	mongoPw       = "admin"
+
 	apiKey             = "jIyd39L4YfD5CRvygwh5LY1IVilQ38NXY5RshUxKGwR1Sjj6ZGzynkxfK1p2jX0c"
 	secretKey          = "3IbVAdTpwMN417BNbiwxc63NMpm0EZiBRbC7YFol4gbMytV4FxtfBfJ5dGkgq5Z2"
 	openDirection      = "SELL"
@@ -36,13 +45,16 @@ var (
 	entriesFlag = ""
 	entries     = []string{"0.0001"}
 
+	closeAllFlag = ""
+	closeAll     = false
+
 	slFlag = ""
 	sl     = "0"
 	tpFlag = ""
-	tps    = []string{"1000000"}
+	tps    = []string{}
 
 	minimumOrderSize = 0.0001
-	positionSize     = 0.002
+	positionSize     = 0.006
 
 	positionPrecisions = map[string]int{
 		"ETH":   3,
@@ -176,6 +188,7 @@ var (
 		"GXS":   0,
 		"IOST":  0,
 		"IOTA":  0,
+		"IRIS":  0,
 		"XLM":   0,
 		"CND":   0,
 		"POA":   0,
@@ -220,7 +233,7 @@ var (
 		"AST":   0,
 		"NANO":  2,
 		"SOL":   0,
-		"SXP": 0,
+		"SXP":   0,
 	}
 
 	pricePrecisions = map[string]int{
@@ -352,6 +365,7 @@ var (
 		"GXS":   8,
 		"IOST":  8,
 		"IOTA":  8,
+		"IRIS":  8,
 		"XLM":   8,
 		"CND":   8,
 		"POA":   8,
@@ -399,7 +413,7 @@ var (
 		"AST":   8,
 		"NANO":  7,
 		"SOL":   8,
-		"SXP": 8,
+		"SXP":   8,
 	}
 	positionSizes = map[string]float64{
 		"ICX":   1,
@@ -409,14 +423,19 @@ var (
 
 //Done:
 //Entries
-//Todo:
-//Exits, SL
-//set global openPositions vriable and manage it
-//If we don't have enough btc in spot account or margin account, make a MarginTransferService and transfer it, and if we only have USDT, then trade it for btc
+
+//Coin discovery process - get all binance balances, and if we find a coin that is not stored in mongo, discover the precision used for prices and trade amounts by trading with high precision to low precision until system allows trade
 
 //2 options for SL
 //Set limit orders to enter, then query those orders every minute or 5 minutes, then once they are filled, place stop orders
 //enter with market orders and place the stop loss right away
+//time-based stops
+
+func handleError(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 
 func contains(s []string, e string) bool {
 	for _, a := range s {
@@ -449,6 +468,7 @@ func init() {
 	getopt.FlagLong(&entriesFlag, "entries", 'e', "entries").SetOptional()
 	getopt.FlagLong(&slFlag, "stop loss", 's', "stop loss").SetOptional()
 	getopt.FlagLong(&tpFlag, "take profit", 't', "take profit").SetOptional()
+	getopt.FlagLong(&closeAllFlag, "close all", 'c', "close all").SetOptional()
 }
 
 func getAccount(client *binance.Client) *binance.Account {
@@ -480,6 +500,16 @@ func cleanFlagArguments() {
 		pairs = strings.Split(pairsFlag, ",")
 		for _, p := range pairs {
 			println(p)
+		}
+	}
+	if len(closeAllFlag) != 0 {
+		if closeAllFlag[0] == ' ' || closeAllFlag[0] == '=' {
+			closeAllFlag = closeAllFlag[1:]
+		}
+		if closeAllFlag[0] == 'f' || closeAllFlag[0] == 'F' {
+			closeAll = false
+		} else {
+			closeAll = true
 		}
 	}
 	if len(entriesFlag) != 0 {
@@ -530,6 +560,10 @@ func cleanFlagArguments() {
 	}
 	if mode[0] == 'm' || mode[0] == 'M' {
 		mode = "market"
+	} else if mode[0] == 'r' || mode[0] == 'R' {
+		mode = "reduce"
+	} else if mode[0] == 'b' || mode[0] == 'B' {
+		mode = "bot"
 	} else if mode[0] == 'l' || mode[0] == 'L' {
 		mode = "limit"
 	} else if mode[0] == 's' || mode[0] == 'S' {
@@ -655,19 +689,19 @@ func checkAndFixPrices(price string) {
 		fl, _ := strconv.ParseInt(e, 10, 64)
 		// fl := float64(il)
 		println(fl)
-		entries[i] = strconv.FormatInt(fl * int64(math.Pow10(zerosToAdd)), 10)
+		entries[i] = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
 		println(entries[i])
 	}
 	for i, t := range tps {
-		fl, _ := strconv.ParseInt(t, 10, 64)		
+		fl, _ := strconv.ParseInt(t, 10, 64)
 		// fl  := float64(il)
 		println(fl)
-		tps[i] = strconv.FormatInt(fl * int64(math.Pow10(zerosToAdd)), 10)
-		println(tps[i])		
-	}	
+		tps[i] = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
+		println(tps[i])
+	}
 	fl, _ := strconv.ParseInt(slFlag, 10, 64)
 	println(fl)
-	sl = strconv.FormatInt(fl * int64(math.Pow10(zerosToAdd)), 10)
+	sl = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
 
 }
 
@@ -681,7 +715,8 @@ func checkAndFixPrices(price string) {
 func main() {
 	getopt.Parse()
 	cleanFlagArguments()
-	account, _ := client.NewGetAccountService().Do(context.Background())
+	printFlagArguments()
+	account := getAccount(client)
 
 	if len(pairs) >= 1 {
 		priceSlice, _ = client.NewListPricesService().Symbol(strings.Join(Map(pairs, getTradingSymbol), ",")).Do(context.Background())
@@ -690,84 +725,216 @@ func main() {
 	}
 	priceSlice = Filter(priceSlice, isSymbolABTCTicker)
 	fillPriceMapFromTickers()
-
 	openSpotPositions := getOpenSpotPositions(account.Balances)
-	// println(openSpotPositions)
-	// fmt.Print(openSpotPositions)
-    currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
-	if mode == "market" {
-		//if we don't have 0.006 BTC, just return. That is currently 2% of account size
-		if openSpotPositions["BTC"] < 0.004 {
-			println("We did not have enough BTC to enter a new position.")
-			return
-		}
-		
-		if slFlag != "" {
-			checkAndFixPrices(prices[getTradingSymbol(pairs[0])])
-			// set OCO stop/TP orders
-			for _, tp := range tps {
-                //if price is above TP, CONTINUE!
-                // println(tp)
-                if (satsToBitcoin(tp) < currentPrice) {
-                	fmt.Println(tp)
-                    fmt.Println(satsToBitcoin(tp))
-                    fmt.Println(currentPrice)
-                    println("couldnt do this order")                    
-                    continue 
-                }
-                marketOrders(client, stringToSide(tradeDirection))                
-				highEntry := entries[1]
-				numCoins := calculateNumberOfCoinsToBuy(highEntry)
-				size := calculateOrderSizeFromPrecision(pairs[0], numCoins)
-				println(size)
-				btcPrice := satsToBitcoin(tp)
-				println(btcPrice)
-				println("now priting sl")
-				println(fmt.Sprintf("%.8f", satsToBitcoin(sl)))
-				println(sl)
-				o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).
-					StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
-				if err != nil {
-					fmt.Println(err)
-				} else {
-					fmt.Println(o)
-				}
-			}
-		}
+
+	if mode == "bot" {
+		executeBotLogic(openSpotPositions)
+	} else if mode == "reduce" {
+		reduceBotPositions(openSpotPositions)
+	} else if mode == "market" {
+		marketOrders(client, stringToSide(tradeDirection))
 	} else if mode == "limit" {
 		//if we don't have 0.006 BTC, just return. That is currently 2% of account size
 		if openSpotPositions["BTC"] < 0.004 {
 			println("We did not have enough BTC to enter a new position.")
 			return
 		}
-		limitOrders(client, stringToSide(tradeDirection), globalOffset)
+		// if len(entries) != 0 {
+		// 	limitOrders()
+		// }
+		limitOrders(client, stringToSide(tradeDirection))
 	} else if mode == "account" {
-		account, _ := client.NewGetAccountService().Do(context.Background())
+		account := getAccount(client)
 		println(account)
 	} else if mode == "cancel" {
-		//getSpotAccount
 
-		//TODO: Convert to floatCopy that just has all the trading pairs
-		//getOpenSpotPositions
-		openSpotPositions := getOpenSpotPositions(account.Balances)
+		if len(pairsFlag) > 0 {
+			openOrdersAcrossAllPairs := []*binance.Order{}
 
-		//cancel the open spot orders
-		cancelSpotOrders(getOpenSpotOrders(openSpotPositions))
+			for _, asset := range pairs {
+				openOrders, err := client.NewListOpenOrdersService().Symbol(getTradingSymbol(asset)).Do(context.Background())
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+				for _, order := range openOrders {
+					// fmt.Println(order)
+					openOrdersAcrossAllPairs = append(openOrdersAcrossAllPairs, order)
+				}
+			}
+			cancelSpotOrders(openOrdersAcrossAllPairs)
+		} else {
+			//TODO: Convert to floatCopy that just has all the trading pairs
+
+			//cancel the open spot orders
+			cancelSpotOrders(getOpenSpotOrders(openSpotPositions))
+		}
 	} else if mode == "close" {
-		account, _ := client.NewGetAccountService().Do(context.Background())
-		// fmt.Println(account.Balances)
-		//getOpenSpotPositions
-		openSpotPositions := getOpenSpotPositions(account.Balances)
 
-		//cancel the open spot orders
-		cancelSpotOrders(getOpenSpotOrders(openSpotPositions))
-
-		//close the open spot positions entirely
-		closeSpotPositions(openSpotPositions)
 	} else if mode == "server" {
 		setupServer()
 	} else {
 		log.Fatal("Utility not called with a suitable argument to the mode flag. Exiting without execution.")
+	}
+}
+
+// func unmar
+
+func reduceBotPositions(openPositions map[string]float64) {
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	cur := getOpenTradeCursor()
+	// defer cur.Close(ctx)
+	for cur.Next(ctx) {
+		var result bson.M
+		err := cur.Decode(&result)
+		if err != nil {
+			log.Fatal(err)
+		}
+		// do something with result....
+		fmt.Println(unmarshalString(result["entry"]))
+
+		//determine whether a trade already hit stop loss or not
+		stopped := determineWhetherStopped(openPositions, unmarshalString(result["pair"]))
+
+		if stopped {
+			//set position open to false
+			setOpenPositionToFalse(unmarshalString(result["pair"]))
+			continue
+		}
+
+		//set open: false
+		//multiply numCoins by positionMultiplier
+		// newNumCoins := result["numCoins"] * positionMultiplier
+		newMultiplier := unmarshalFloat(result["multiplier"]) * positionMultiplier
+
+		//get open orders on the pair; if none, position was continued upon in previous step
+		//cancel orders
+		openOrders := getOpenSpotOrdersForASinglePair(unmarshalString(result["pair"]))
+		cancelSpotOrders(openOrders)
+		//get original number of orders -- number of TPs
+		originalNumOrders := len(strings.Split(unmarshalString(unmarshalString(result["tps"])), ","))
+		numFilledOrders := len(openOrders) - originalNumOrders
+
+		//need to reduce current gross exposure -- not original
+		//to do so -- get proportion of coins already sold -- from number of TPs hit
+
+		//reduce position by multiplier
+		remainingProportionOfGrossExposure := 1.0 - (float64(numFilledOrders) / float64(originalNumOrders))
+		remainingCoins := float64(unmarshalFloat(result["numCoins"])) * remainingProportionOfGrossExposure
+		size := calculateOrderSizeFromPrecision(pairs[0], remainingCoins, positionMultiplier)
+		marketOrder(client, stringToSide("SELL"), pairs[0], size)
+
+		//handle TPs
+		entries = strings.Split(unmarshalString(result["entry"]), ",")
+		pairs = []string{unmarshalString(result["pair"])}
+		sl = unmarshalString(result["sl"])
+		tps = strings.Split(unmarshalString(result["tps"]), ",")
+		for i, tp := range tps {
+			if i < numFilledOrders {
+				continue
+			} else {
+				handleTPWithoutOpening(tp, newMultiplier)
+			}
+		}
+	}
+}
+
+func handleCloseLogic(openSpotPositions map[string]float64) {
+	//cancel the open spot orders
+	cancelSpotOrders(getOpenSpotOrders(openSpotPositions))
+
+	//close the open spot positions entirely
+	closeSpotPositions(openSpotPositions)
+}
+
+func handleTPWithoutOpening(tp string, passedMultiplier float64) {
+	currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
+	if satsToBitcoin(tp) < currentPrice {
+		fmt.Println(tp)
+		fmt.Println(currentPrice)
+		log.Fatal("couldnt do this order")
+	}
+	highEntry := entries[len(entries)-1]
+	numCoins := calculateNumberOfCoinsToBuy(highEntry)
+	size := calculateOrderSizeFromPrecision(pairs[0], numCoins, passedMultiplier)
+	btcPrice := satsToBitcoin(tp)
+	o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).
+		StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
+	handleError(err)
+	fmt.Println(o)
+}
+
+func handleTP(tp string) {
+	currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
+	if satsToBitcoin(tp) < currentPrice {
+		fmt.Println(tp)
+		fmt.Println(currentPrice)
+		log.Fatal("couldnt do this order")
+	}
+	highEntry := entries[len(entries)-1]
+	numCoins := calculateNumberOfCoinsToBuy(highEntry)
+	size := calculateOrderSizeFromPrecision(pairs[0], numCoins, positionMultiplier)
+	marketOrder(client, stringToSide("BUY"), pairs[0], size)
+	btcPrice := satsToBitcoin(tp)
+	o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).
+		StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
+	handleError(err)
+	fmt.Println(o)
+}
+
+func handleTPs() {
+	for _, tp := range tps {
+		handleTP(tp)
+	}
+}
+
+func getMongoClient() *mongo.Client {
+	// mongoURI := fmt.Sprintf("mongodb+srv://%s:%s@%s", mongoUsername, mongoPw, mongoHost1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(ctx, getClientOptions())
+	handleError(err)
+
+	return client
+}
+
+func getTradeCollection() *mongo.Collection {
+	return getMongoClient().Database("dolphin").Collection("altBtcTrades0")
+}
+
+func addTradeToMongo() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := getTradeCollection().InsertOne(ctx, bson.M{
+		"pair":       pairs[0],
+		"entry":      entriesFlag,
+		"sl":         slFlag,
+		"tp":         tpFlag,
+		"open":       true,
+		"numCoins":   calculateNumberOfCoinsToBuy(entries[1]) * float64(len(tps)),
+		"multiplier": positionMultiplier,
+		"lastUpdate": primitive.Timestamp{T: uint32(time.Now().Unix())},
+	})
+	handleError(err)
+	fmt.Println(res)
+}
+
+func executeBotLogic(openSpotPositions map[string]float64) {
+	//if we don't have 0.006 BTC, just return. That is currently 2% of account size
+	if openSpotPositions["BTC"] < 0.004 {
+		println("We did not have enough BTC to enter a new position.")
+		return
+	}
+	if slFlag != "" {
+		checkAndFixPrices(prices[getTradingSymbol(pairs[0])])
+
+		// set OCO stop/TP orders
+		handleTPs()
+
+		//All TPs placed --> add to mongo
+		addTradeToMongo()
 	}
 }
 
@@ -808,52 +975,110 @@ func getOpenSpotPositions(balances []binance.Balance) map[string]float64 {
 			continue
 		}
 		openSpotPositions[balance.Asset] = floatFree + floatLocked
+
 	}
 	return openSpotPositions
 }
 
+func unmarshalString(data interface{}) string {
+	var tbr string
+	bson.Unmarshal(data.([]byte), &tbr)
+	return tbr
+}
+
+func unmarshalFloat(data interface{}) float64 {
+	// stringTbr := unmarshalString(data)
+	var tbr float64
+	bson.Unmarshal(data.([]byte), &tbr)
+	return tbr
+}
+
 func closeSpotPositions(openPositions map[string]float64) {
+	println("made it inside closeopen")
 	if len(pairs) > 0 {
 		for _, p := range pairs {
 			println(p)
 			tradingSymbol := getTradingSymbol(p)
-			amt := calculateOrderSizeFromPrecision(tradingSymbol, openPositions[p])
+			amt := calculateOrderSizeFromPrecision(tradingSymbol, openPositions[p], positionMultiplier)
 			if amt == "0.0" {
 				continue
 			}
-
-			println("now hee")
-			// numCoins := calculateNumberOfCoinsToBuy(highEntry)
-			// size := calculateOrderSizeFromPrecision(asset, numCoins*2)
-			println(calculateOrderSizeFromPrecision(p, openPositions[p]))
 			spotCloseOrder, spotOrderErr := client.NewCreateOrderService().Symbol(tradingSymbol).
 				Side(binance.SideTypeSell).Type(binance.OrderTypeMarket).
-				Quantity(calculateOrderSizeFromPrecision(p, openPositions[p])).Do(context.Background())
+				Quantity(calculateOrderSizeFromPrecision(p, positionMultiplier*openPositions[p], positionMultiplier)).Do(context.Background())
 			println(spotCloseOrder)
 			if spotOrderErr != nil {
 				fmt.Println(spotOrderErr)
 			}
 		}
 	} else {
+		openPositions = getOpenSpotPositions(getAccount(client).Balances)
 		for k, v := range openPositions {
 			if k == "BTC" {
 				continue
 			}
 			println(getTradingSymbol(k))
-			amt := calculateOrderSizeFromPrecision(k, v)
+			amt := calculateOrderSizeFromPrecision(k, v, positionMultiplier)
 			if amt == "0.0" {
 				continue
 			}
 
 			spotCloseOrder, spotOrderErr := client.NewCreateOrderService().Symbol(getTradingSymbol(k)).
 				Side(binance.SideTypeSell).Type(binance.OrderTypeMarket).
-				Quantity(calculateOrderSizeFromPrecision(k, v*positionMultiplier)).Do(context.Background())
+				Quantity(calculateOrderSizeFromPrecision(k, v*positionMultiplier, positionMultiplier)).Do(context.Background())
 			println(spotCloseOrder)
 			if spotOrderErr != nil {
 				fmt.Println(spotOrderErr)
 			}
 		}
 	}
+}
+
+// func adjustPositionMultiplierForOrderState(numOrig int, numFilled int) {
+// 	if numFilled == 0 || numOrig == 1 {
+// 		return 1
+// 	}
+// 	if numOrig == 2 {
+// 		if numFilled == 1  {
+// 			return 0.5
+// 		}
+// 	} else if numOrig == 3 {
+// 		if numFilled == 1 {
+
+// 		} else if numFilled == 2 {
+
+// 		}
+// 	}
+// }
+
+func setOpenPositionToFalse(asset string) {
+	filter := bson.M{"pair": asset, "open": true}
+	update := bson.D{{"$set", bson.D{{"open", false}}}}
+	_, err := getTradeCollection().UpdateOne(context.TODO(), filter, update, nil)
+	handleError(err)
+}
+
+func determineWhetherStopped(openPositions map[string]float64, asset string) bool {
+	if Includes(getMapKeys(openPositions), asset) {
+		return false
+	} else {
+		return true
+	}
+}
+
+func getClientOptions() *options.ClientOptions {
+	mongoURI := fmt.Sprintf("mongodb+srv://%s:%s@%s", mongoUsername, mongoPw, mongoHost1)
+	fmt.Println("connection string is:", mongoURI)
+
+	// Set client options and connect
+	return options.Client().ApplyURI(mongoURI)
+}
+
+func getOpenTradeCursor() *mongo.Cursor {
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	cur, err := getTradeCollection().Find(ctx, bson.M{"open": true})
+	handleError(err)
+	return cur
 }
 
 func setupServer() {
@@ -950,15 +1175,7 @@ func closeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func cancelSpotOrders(orders []*binance.Order) {
-	// for _, pair := range pairs {
-	//     _, err := client.NewCancelOrderService().Symbol(order.Symbol).OrderID(order.OrderID).Do(context.Background())
-	//     if err != nil {
-	//         fmt.Println(err)
-	//         return
-	//     }
-	// }
 	for _, order := range orders {
-		println(order.Symbol)
 		_, err := client.NewCancelOrderService().Symbol(order.Symbol).OrderID(order.OrderID).Do(context.Background())
 		if err != nil {
 			fmt.Println(err)
@@ -967,8 +1184,15 @@ func cancelSpotOrders(orders []*binance.Order) {
 	}
 }
 
+func getOpenSpotOrdersForASinglePair(asset string) []*binance.Order {
+	openOrders, err := client.NewListOpenOrdersService().Symbol(getTradingSymbol(asset)).Do(context.Background())
+	handleError(err)
+	return openOrders
+}
+
 func getOpenSpotOrders(openPositions map[string]float64) []*binance.Order {
 	openOrdersAcrossAllPairs := []*binance.Order{}
+	fmt.Println("adasd")
 	if len(pairsFlag) > 0 {
 		for _, asset := range pairs {
 			openOrders, err := client.NewListOpenOrdersService().Symbol(getTradingSymbol(asset)).Do(context.Background())
@@ -982,6 +1206,7 @@ func getOpenSpotOrders(openPositions map[string]float64) []*binance.Order {
 			}
 		}
 	} else {
+		fmt.Println("adasd")
 		for asset := range openPositions {
 			println("getting open spot orders for " + asset)
 			if asset == "BTC" {
@@ -1069,8 +1294,8 @@ func ifOrderSizeMeetsMinimum(numCoins float64, entry string) bool {
  * params: client
  ************************
  */
-func limitOrders(client *binance.Client, direction binance.SideType, offset float64) {
-	for globalPairIndex, _ := range pairs {
+func limitOrders(client *binance.Client, direction binance.SideType) {
+	for globalPairIndex := range pairs {
 		reversedIndex := len(pairs) - globalPairIndex - 1
 		for _, entry := range entries {
 			btcPrice := satsToBitcoin(entry)
@@ -1078,88 +1303,91 @@ func limitOrders(client *binance.Client, direction binance.SideType, offset floa
 			if !ifOrderSizeMeetsMinimum(numCoins, entry) {
 				continue
 			}
-			size := calculateOrderSizeFromPrecision(pairs[reversedIndex], calculateNumberOfCoinsToBuy(entry)/2)
-			limitOrder(client, direction, getTradingSymbol(pairs[reversedIndex]), offset, size, fmt.Sprintf("%.8f", btcPrice)) //calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]))
+			size := calculateOrderSizeFromPrecision(pairs[reversedIndex], calculateNumberOfCoinsToBuy(entry)/2, positionMultiplier)
+			limitOrder(client, direction, getTradingSymbol(pairs[reversedIndex]), size, fmt.Sprintf("%.8f", btcPrice))
 		}
 	}
 }
 
-// /*
-//  * function stopMarketOrders
-//  * params: client
-//  ************************
-//  */
-// func stopMarketOrders(client *binance.Client, direction binance.SideType, offset float64, isReduceOnly binance.OrderReduceOnly, pairs ...string) {
-//     prices := getPrices(client)
-//     for globalPairIndex, _ := range pairs {
-//         reversedIndex := len(pairs) - globalPairIndex - 1
-//         size := calculateOrderSizeFromPrecision(pairs[reversedIndex], calculateNumberOfCoinsToBuy)
-//         stopMarketOrder(client, getOppositeDirection(direction), pairs[reversedIndex], size, calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]), isReduceOnly)
-//     }
-// }
+/*
+ * function stopMarketOrders
+ * params: client
+ ************************
 
-// /*
-//  * function stopMarketOrder
-//  * params: client
-//  ************************
-//  *///error-returning
-// func stopMarketOrder(client *binance.Client, direction binance.SideType, asset string, size string, price string, isReduceOnly binance.OrderReduceOnly) error {
-//     order, err := client.NewCreateOrderService().Symbol(asset).
-//         Side(direction).Type(binance.OrderTypeStopLoss).
-//         Quantity(size).ReduceOnly(isReduceOnly).
-//         StopPrice(price).Do(context.Background())
-//     if err != nil {
-//         fmt.Println(err)
-//         return err
-//     }
-//     // openPositions[asset] -= positionMultiplier * positionSizes[asset]
-//     fmt.Println(order)
-//     return nil
-// }
+func stopMarketOrders(client *binance.Client, direction binance.SideType, offset float64, isReduceOnly binance.OrderReduceOnly, pairs ...string) {
+    prices := getPrices(client)
+    for globalPairIndex, _ := range pairs {
+        reversedIndex := len(pairs) - globalPairIndex - 1
+        size := calculateOrderSizeFromPrecision(pairs[reversedIndex], calculateNumberOfCoinsToBuy)
+        stopMarketOrder(client, getOppositeDirection(direction), pairs[reversedIndex], size, calculateOrderPriceFromOffset(prices[reversedIndex].Price, offset, direction, pairs[reversedIndex]), isReduceOnly)
+    }
+}
+
+/*
+ * function stopMarketOrder
+ * params: client
+ ************************
+ //error-returning
+func stopMarketOrder(client *binance.Client, direction binance.SideType, asset string, size string, price string, isReduceOnly binance.OrderReduceOnly) error {
+    order, err := client.NewCreateOrderService().Symbol(asset).
+        Side(direction).Type(binance.OrderTypeStopLoss).
+        Quantity(size).ReduceOnly(isReduceOnly).
+        StopPrice(price).Do(context.Background())
+    if err != nil {
+        fmt.Println(err)
+        return err
+    }
+    // openPositions[asset] -= positionMultiplier * positionSizes[asset]
+    fmt.Println(order)
+    return nil
+}
+*/
 
 /*
  * function limitOrder
- * params: client
+ * params: client, direction, asset, size, price
  ************************
  */
-// func limitOrder(client *binance.Client, direction binance.SideType, asset string, offset float64, size string, price string) {
-//     println("calling limit order")
-//     order, err := client.NewCreateOrderService().Symbol(asset).
-//             Side(direction).Type(binance.OrderTypeLimit).
-//             TimeInForce(binance.TimeInForceTypeGTC).Quantity(size).
-//             Price(price).Do(context.Background())
-//     if err != nil {
-//         fmt.Println(err)
-//         return
-//     }
-//     fmt.Println(order)
-// }
+func limitOrder(client *binance.Client, direction binance.SideType, asset string, size string, price string) {
+	println("calling limit order")
+	println(price)
+	println("asdasda")
+	order, err := client.NewCreateOrderService().Symbol(asset).
+		Side(direction).Type(binance.OrderTypeLimit).
+		TimeInForce(binance.TimeInForceTypeGTC).Quantity(size).
+		Price(price).Do(context.Background())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(order)
+}
 
 /*
  * function calculateOrderSizeFromPrecision
  * params: priceString string, offset float64, direction binance.SideType
  ************************
  */
-func calculateOrderSizeFromPrecision(asset string, size float64) string {
+func calculateOrderSizeFromPrecision(asset string, size float64, passedMultiplier float64) string {
 	size = math.Floor(size*math.Pow10(positionPrecisions[asset])) / float64(math.Pow10(positionPrecisions[asset]))
 	if positionPrecisions[asset] == 0 {
-		return fmt.Sprintf("%d", int64(positionMultiplier*size))
+		return fmt.Sprintf("%d", int64(passedMultiplier*size))
 	} else if positionPrecisions[asset] == 1 {
-		return fmt.Sprintf("%.1f", positionMultiplier*size)
+		return fmt.Sprintf("%.1f", passedMultiplier*size)
 	} else if positionPrecisions[asset] == 2 {
-		return fmt.Sprintf("%.2f", positionMultiplier*size)
+		return fmt.Sprintf("%.2f", passedMultiplier*size)
 	} else if positionPrecisions[asset] == 3 {
-		return fmt.Sprintf("%.3f", positionMultiplier*size)
+		return fmt.Sprintf("%.3f", passedMultiplier*size)
 	} else if positionPrecisions[asset] == 4 {
-		return fmt.Sprintf("%.4f", positionMultiplier*size)
+		return fmt.Sprintf("%.4f", passedMultiplier*size)
 	} else if positionPrecisions[asset] == 5 {
-		return fmt.Sprintf("%.5f", positionMultiplier*size)
+		return fmt.Sprintf("%.5f", passedMultiplier*size)
 	} else if positionPrecisions[asset] == 6 {
-		return fmt.Sprintf("%.6f", positionMultiplier*size)
+		return fmt.Sprintf("%.6f", passedMultiplier*size)
 	} else if positionPrecisions[asset] == 7 {
-		return fmt.Sprintf("%.7f", positionMultiplier*size)
+		return fmt.Sprintf("%.7f", passedMultiplier*size)
 	} else {
-		return fmt.Sprintf("%.8f", positionMultiplier*size)
+		return fmt.Sprintf("%.8f", passedMultiplier*size)
 	}
 }
 
@@ -1208,21 +1436,21 @@ func parseFloatHandleErr(floatString string) float64 {
 //get the
 func calculateNumberOfCoinsToBuy(price string) float64 {
 	ff := parseFloatHandleErr(price)
-	numCoins := positionSize / ff
-	// println(numCoins* math.Pow10(int(8)) )
+	var numCoins float64
+	if len(tps) == 2 {
+		numCoins = ((3 * positionSize) / (ff * 2)) / 4
+	} else {
+		numCoins = (positionSize / ff) / 3
+	}
 	return numCoins * math.Pow10(int(8))
-	// if numCoins % 2 == 0 {
-	//     return numCoins
-	// } else {
-	//     return numCoins - 1
-	// }
 }
 
+/***
 /*
  * function calculateOrderPriceFromOffset
  * params: priceString string, offset float64, direction binance.SideType
  ************************
- */
+
 // func calculateOrderPriceFromOffset(priceString string, offset float64, direction binance.SideType, asset string) string {
 //     price, err := strconv.ParseFloat(priceString, 64)
 //     if err != nil {
@@ -1246,24 +1474,6 @@ func calculateNumberOfCoinsToBuy(price string) float64 {
 //     }
 // }
 
-/*
- * function limitOrder
- * params: client
- ************************
- */
-func limitOrder(client *binance.Client, direction binance.SideType, asset string, offset float64, size string, price string) {
-	println("calling limit order")
-	order, err := client.NewCreateOrderService().Symbol(asset).
-		Side(direction).Type(binance.OrderTypeLimit).
-		TimeInForce(binance.TimeInForceTypeGTC).Quantity(size).
-		Price(price).Do(context.Background())
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println(order)
-}
-
 // for globalPairIndex, _ := range pairs {
 //         reversedIndex := len(pairs) - globalPairIndex - 1
 //         println(reversedIndex)
@@ -1282,7 +1492,7 @@ func limitOrder(client *binance.Client, direction binance.SideType, asset string
 
 // func calculateOrderSizeFromPrecision(asset string, size float64) string {
 
-/*
+
  * function marketOrders
  * params: client
  ************************
@@ -1291,7 +1501,7 @@ func marketOrders(client *binance.Client, direction binance.SideType) {
 	for i, asset := range pairs {
 		highEntry := entries[i*2+1]
 		numCoins := calculateNumberOfCoinsToBuy(highEntry)
-		size := calculateOrderSizeFromPrecision(asset, numCoins)
+		size := calculateOrderSizeFromPrecision(asset, numCoins, positionMultiplier)
 		if !ifOrderSizeMeetsMinimum(numCoins, highEntry) {
 			continue
 		}
@@ -1304,14 +1514,11 @@ func marketOrders(client *binance.Client, direction binance.SideType) {
  * params: client
  ************************
  */ //error-returning
-func marketOrder(client *binance.Client, direction binance.SideType, asset string, size string) error {
+func marketOrder(client *binance.Client, direction binance.SideType, asset string, size string) *binance.Order {
 	order, err := client.NewCreateOrderService().Symbol(asset).
 		Side(direction).Type(binance.OrderTypeMarket).
 		Quantity(size).Do(context.Background())
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
+	handleError(err)
 	// openPositions[asset] -= positionMultiplier * positionSizes[asset]
 	fmt.Println(order)
 	return nil
