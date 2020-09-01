@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	_ "encoding/json"
 	"fmt"
 	"github.com/ggarza5/go-binance-margin"
 	"github.com/pborman/getopt/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	// "go.mongodb.org/mongo-driver/bson/primitive/objectid"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"html/template"
@@ -20,17 +22,19 @@ import (
 	"time"
 )
 
-var (
-	mongoUsername = "admin"
-	mongoHost1    = "cluster0-iy9i2.mongodb.net/test?authSource=admin&replicaSet=Cluster0-shard-0&readPreference=primary&ssl=true"
-	mongoPw       = "admin"
+//TODO: ReduceTrade Dust prevention
 
-	apiKey             = "jIyd39L4YfD5CRvygwh5LY1IVilQ38NXY5RshUxKGwR1Sjj6ZGzynkxfK1p2jX0c"
-	secretKey          = "3IbVAdTpwMN417BNbiwxc63NMpm0EZiBRbC7YFol4gbMytV4FxtfBfJ5dGkgq5Z2"
-	openDirection      = "SELL"
-	tradeDirection     = ""
-	globalOffset       = 0.01
-	positionMultiplier = 1.0
+var (
+	mongoUsername            = "admin"
+	mongoHost1               = "cluster0-iy9i2.mongodb.net/test?authSource=admin&replicaSet=Cluster0-shard-0&readPreference=primary&ssl=true"
+	mongoPw                  = "admin"
+	mongoTradeCollectionName = "altBtcTrades"
+	apiKey                   = "jIyd39L4YfD5CRvygwh5LY1IVilQ38NXY5RshUxKGwR1Sjj6ZGzynkxfK1p2jX0c"
+	secretKey                = "3IbVAdTpwMN417BNbiwxc63NMpm0EZiBRbC7YFol4gbMytV4FxtfBfJ5dGkgq5Z2"
+	openDirection            = "SELL"
+	tradeDirection           = ""
+	globalOffset             = 0.01
+	positionMultiplier       = 1.0
 
 	globalOffsetFlag       = "0.01"
 	positionMultiplierFlag = "1.0"
@@ -170,7 +174,7 @@ var (
 		"WAVES": 2,
 		"OAX":   0,
 		"LOOM":  0,
-		"LTC":   3,
+		"LTC":   2,
 		"STORM": 0,
 		"XZC":   2,
 		"ELF":   0,
@@ -421,6 +425,18 @@ var (
 	}
 )
 
+type Trade struct {
+	Id         primitive.ObjectID  `json:"_id" bson:"_id"`
+	Sl         string              `json:"sl" bson:"sl"`
+	Tps        string              `json:"tp" bson:"tp"`
+	Open       bool                `json:"open" bson:"open"`
+	NumCoins   float64             `json:"numCoins" bson:"numCoins"`
+	LastUpdate primitive.Timestamp `json:"lastUpdate" bson:"lastUpdate"`
+	Multiplier float64             `json:"multiplier" bson:"multiplier"`
+	Pair       string              `json:"pair" bson:"pair"`
+	Entry      string              `json:"entry" bson:"entry"`
+}
+
 //Done:
 //Entries
 
@@ -483,12 +499,12 @@ func getAccount(client *binance.Client) *binance.Account {
  * Prints the global flag variables. Should be called after they are set by init()
  */
 func printFlagArguments() {
-	println(tradeDirection)
-	println(globalOffsetFlag)
-	println(positionMultiplierFlag)
-	println(mode)
-	println(pairsFlag)
-	println(entriesFlag)
+	// println(tradeDirection)
+	// println(globalOffsetFlag)
+	// println(positionMultiplierFlag)
+	// println(mode)
+	// println(pairsFlag)
+	// println(entriesFlag)
 }
 
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
@@ -685,22 +701,14 @@ func checkAndFixPrices(price string) {
 	// println(precision)
 	zerosToAdd := 8 - pricePrecisions[pairs[0]]
 	for i, e := range entries {
-		// println(i)
 		fl, _ := strconv.ParseInt(e, 10, 64)
-		// fl := float64(il)
-		println(fl)
 		entries[i] = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
-		println(entries[i])
 	}
 	for i, t := range tps {
 		fl, _ := strconv.ParseInt(t, 10, 64)
-		// fl  := float64(il)
-		println(fl)
 		tps[i] = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
-		println(tps[i])
 	}
 	fl, _ := strconv.ParseInt(slFlag, 10, 64)
-	println(fl)
 	sl = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
 
 }
@@ -778,57 +786,80 @@ func main() {
 	}
 }
 
-// func unmar
-
 func reduceBotPositions(openPositions map[string]float64) {
 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
 	cur := getOpenTradeCursor()
-	// defer cur.Close(ctx)
+	defer cur.Close(ctx)
+	trade := Trade{}
+	trades := []Trade{}
+	_, _ = trade, trades
 	for cur.Next(ctx) {
-		var result bson.M
-		err := cur.Decode(&result)
+		// var result bson.M
+		err := cur.Decode(&trade)
 		if err != nil {
+			println("error from cur.Decode")
 			log.Fatal(err)
 		}
-		// do something with result....
-		fmt.Println(unmarshalString(result["entry"]))
 
 		//determine whether a trade already hit stop loss or not
-		stopped := determineWhetherStopped(openPositions, unmarshalString(result["pair"]))
+		stopped := determineWhetherStopped(openPositions, trade.Pair) //unmarshalString(trade.Pair))
 
 		if stopped {
 			//set position open to false
-			setOpenPositionToFalse(unmarshalString(result["pair"]))
+			setOpenPositionToFalse(trade.Pair)
 			continue
 		}
 
-		//set open: false
 		//multiply numCoins by positionMultiplier
-		// newNumCoins := result["numCoins"] * positionMultiplier
-		newMultiplier := unmarshalFloat(result["multiplier"]) * positionMultiplier
+		// newNumCoins := trade.EumCoins * positionMultiplier
+		newMultiplier := trade.Multiplier * positionMultiplier
 
 		//get open orders on the pair; if none, position was continued upon in previous step
 		//cancel orders
-		openOrders := getOpenSpotOrdersForASinglePair(unmarshalString(result["pair"]))
+		openOrders := getOpenSpotOrdersForASinglePair(trade.Pair)
+		// time.Sleep(2 * time.Second)
 		cancelSpotOrders(openOrders)
-		//get original number of orders -- number of TPs
-		originalNumOrders := len(strings.Split(unmarshalString(unmarshalString(result["tps"])), ","))
-		numFilledOrders := len(openOrders) - originalNumOrders
 
+		//Once orders are cancelled, position should be noted as closed in the database
+		setOpenPositionToFalse(trade.Pair)
+
+		//get original number of orders -- number of TPs
+		//arithmetic involves "2" to deal with OCO orders
+		originalNumOrders := len(strings.Split(trade.Tps, ",")) * 2
+		numFilledOrders := (len(openOrders) - originalNumOrders) / 2
 		//need to reduce current gross exposure -- not original
 		//to do so -- get proportion of coins already sold -- from number of TPs hit
 
 		//reduce position by multiplier
 		remainingProportionOfGrossExposure := 1.0 - (float64(numFilledOrders) / float64(originalNumOrders))
-		remainingCoins := float64(unmarshalFloat(result["numCoins"])) * remainingProportionOfGrossExposure
+		remainingCoins := float64(trade.NumCoins) * remainingProportionOfGrossExposure
 		size := calculateOrderSizeFromPrecision(pairs[0], remainingCoins, positionMultiplier)
-		marketOrder(client, stringToSide("SELL"), pairs[0], size)
+		sizeFloat := parseFloatHandleErr(size)
+		println("we have this many coins")
+		fmt.Println(remainingCoins)
+		println("we are tryna sell this many coins")
+		fmt.Println(size)
+		marketOrder(client, stringToSide("SELL"), getTradingSymbol(pairs[0]), size)
 
+		//Placement TODO: Dust prevention
+
+		// coinPriceFloat := parseFloatHandleErr(prices[trade.Pair])
+		// thresholdNumberOfDustCoins := minimumOrderSize / coinPriceFloat
+
+		//round it down
+		//calculate remainder of reducedTrade coins % 3 (if TPs are hit, then mod it by 2 or 1 since the closing orders
+		//will be split into 1-3 TPs)
+
+		//simply add this remainder to the market sell order which reduces numCoins in play, and subtract it from the
+		// numCoins in mongo new trade. No need to mess with TPs because this is the remainder
+
+		//Position
 		//handle TPs
-		entries = strings.Split(unmarshalString(result["entry"]), ",")
-		pairs = []string{unmarshalString(result["pair"])}
-		sl = unmarshalString(result["sl"])
-		tps = strings.Split(unmarshalString(result["tps"]), ",")
+		entries = strings.Split(trade.Entry, ",")
+		pairs = []string{trade.Pair}
+		sl = trade.Sl
+		trade.Tps = newTpsString(trade.Tps, numFilledOrders) //strings.Split(trade.Tps, ",")
+		tps = strings.Split(trade.Tps, ",")
 		for i, tp := range tps {
 			if i < numFilledOrders {
 				continue
@@ -836,6 +867,19 @@ func reduceBotPositions(openPositions map[string]float64) {
 				handleTPWithoutOpening(tp, newMultiplier)
 			}
 		}
+		addReducedTradeToMongo(trade, trade.NumCoins-sizeFloat, newMultiplier)
+	}
+	//after handling the new orders,
+}
+
+func newTpsString(passedTps string, numFilled int) string {
+	switch numFilled {
+	case 2:
+		return strings.Join(strings.Split(passedTps, ",")[0:1], ",")
+	case 1:
+		return strings.Join(strings.Split(passedTps, ",")[0:2], ",")
+	default:
+		return passedTps
 	}
 }
 
@@ -849,6 +893,7 @@ func handleCloseLogic(openSpotPositions map[string]float64) {
 
 func handleTPWithoutOpening(tp string, passedMultiplier float64) {
 	currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
+	fmt.Println("jerere")
 	if satsToBitcoin(tp) < currentPrice {
 		fmt.Println(tp)
 		fmt.Println(currentPrice)
@@ -874,7 +919,9 @@ func handleTP(tp string) {
 	highEntry := entries[len(entries)-1]
 	numCoins := calculateNumberOfCoinsToBuy(highEntry)
 	size := calculateOrderSizeFromPrecision(pairs[0], numCoins, positionMultiplier)
-	marketOrder(client, stringToSide("BUY"), pairs[0], size)
+	println("in handletp")
+	marketOrder(client, stringToSide("BUY"), getTradingSymbol(pairs[0]), size)
+	println("in handletp")
 	btcPrice := satsToBitcoin(tp)
 	o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).
 		StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
@@ -900,21 +947,51 @@ func getMongoClient() *mongo.Client {
 }
 
 func getTradeCollection() *mongo.Collection {
-	return getMongoClient().Database("dolphin").Collection("altBtcTrades0")
+	return getMongoClient().Database("dolphin").Collection(mongoTradeCollectionName)
+}
+
+func getOrderSize(asset string, size float64, passedMultiplier float64) float64 {
+	numCoins := calculateOrderSizeFromPrecision(asset, size, passedMultiplier)
+	tbr := parseFloatHandleErr(numCoins)
+	return tbr
 }
 
 func addTradeToMongo() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
+	highEntry := entries[1]
+	numCoins := calculateNumberOfCoinsToBuy(highEntry)
+	// size := calculateOrderSizeFromPrecision(pairs[0], numCoins, positionMultiplier)
+	size := getOrderSize(pairs[0], numCoins, positionMultiplier)
+	if !ifOrderSizeMeetsMinimum(numCoins, highEntry) {
+		log.Fatal("Trade order size was not high enough")
+		return
+	}
 	res, err := getTradeCollection().InsertOne(ctx, bson.M{
 		"pair":       pairs[0],
 		"entry":      entriesFlag,
 		"sl":         slFlag,
 		"tp":         tpFlag,
 		"open":       true,
-		"numCoins":   calculateNumberOfCoinsToBuy(entries[1]) * float64(len(tps)),
+		"numCoins":   size * float64(len(tps)),
 		"multiplier": positionMultiplier,
+		"lastUpdate": primitive.Timestamp{T: uint32(time.Now().Unix())},
+	})
+	handleError(err)
+	fmt.Println(res)
+}
+
+func addReducedTradeToMongo(trade Trade, numCoinsArgument float64, multiplierArgument float64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := getTradeCollection().InsertOne(ctx, bson.M{
+		"pair":       trade.Pair,
+		"entry":      trade.Entry,
+		"sl":         trade.Sl,
+		"tp":         trade.Tps,
+		"open":       true,
+		"numCoins":   numCoinsArgument,
+		"multiplier": multiplierArgument,
 		"lastUpdate": primitive.Timestamp{T: uint32(time.Now().Unix())},
 	})
 	handleError(err)
@@ -1052,9 +1129,16 @@ func closeSpotPositions(openPositions map[string]float64) {
 // }
 
 func setOpenPositionToFalse(asset string) {
+	var result Trade
+	col := getTradeCollection()
+	err := col.FindOne(context.TODO(), bson.M{"pair": asset, "open": true}).Decode(&result)
+	handleError(err)
 	filter := bson.M{"pair": asset, "open": true}
-	update := bson.D{{"$set", bson.D{{"open", false}}}}
-	_, err := getTradeCollection().UpdateOne(context.TODO(), filter, update, nil)
+	result.Open = false
+	// filter := bson.M{"pair": asset, "open": true}
+	// update := bson.D{{"$set", bson.D{{"open", false}}}}
+	_, err = col.ReplaceOne(context.Background(), filter, result)
+	// _, err := getTradeCollection().UpdateOne(context.TODO(), filter, update, nil)
 	handleError(err)
 }
 
@@ -1068,7 +1152,6 @@ func determineWhetherStopped(openPositions map[string]float64, asset string) boo
 
 func getClientOptions() *options.ClientOptions {
 	mongoURI := fmt.Sprintf("mongodb+srv://%s:%s@%s", mongoUsername, mongoPw, mongoHost1)
-	fmt.Println("connection string is:", mongoURI)
 
 	// Set client options and connect
 	return options.Client().ApplyURI(mongoURI)
@@ -1176,10 +1259,10 @@ func closeHandler(w http.ResponseWriter, r *http.Request) {
 
 func cancelSpotOrders(orders []*binance.Order) {
 	for _, order := range orders {
-		_, err := client.NewCancelOrderService().Symbol(order.Symbol).OrderID(order.OrderID).Do(context.Background())
+		_, err := client.NewCancelOrderService().Symbol(order.Symbol).OrderID(order.OrderID).Do(context.TODO())
 		if err != nil {
 			fmt.Println(err)
-			return
+			// return
 		}
 	}
 }
@@ -1433,14 +1516,16 @@ func parseFloatHandleErr(floatString string) float64 {
 	return ff
 }
 
-//get the
+//get the number of coins to sell at each TP
 func calculateNumberOfCoinsToBuy(price string) float64 {
 	ff := parseFloatHandleErr(price)
 	var numCoins float64
 	if len(tps) == 2 {
 		numCoins = ((3 * positionSize) / (ff * 2)) / 4
-	} else {
+	} else if len(tps) == 3 {
 		numCoins = (positionSize / ff) / 3
+	} else { //there is only 1 TP left
+		numCoins = positionSize / ff
 	}
 	return numCoins * math.Pow10(int(8))
 }
@@ -1515,6 +1600,7 @@ func marketOrders(client *binance.Client, direction binance.SideType) {
  ************************
  */ //error-returning
 func marketOrder(client *binance.Client, direction binance.SideType, asset string, size string) *binance.Order {
+	println(asset)
 	order, err := client.NewCreateOrderService().Symbol(asset).
 		Side(direction).Type(binance.OrderTypeMarket).
 		Quantity(size).Do(context.Background())

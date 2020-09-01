@@ -19,7 +19,7 @@ var pw = "admin"
 
 func handleError(err error) {
     if err != nil {
-        log.Fatal(err)        
+        log.Fatal(err)
     }
 }
 
@@ -45,19 +45,21 @@ func main() {
 
     err = client.Ping(ctx, nil)
     handleError(err)
-    
+
     collection := client.Database("dolphin").Collection("altBtcTrades0")
     // var records bson.M
-    
-    ctx, _ = context.WithTimeout(context.Background(), 30*time.Second)    
+
+    ctx, _ = context.WithTimeout(context.Background(), 30*time.Second)
     cur, err := collection.Find(ctx, bson.M{"open": true})
     handleError(err)
     // defer cur.Close(ctx)
     for cur.Next(ctx) {
-       var result bson.M
-       err := cur.Decode(&result)
-       if err != nil { log.Fatal(err) }
-       // do something with result....
+        var result bson.M
+        err := cur.Decode(&result)
+        if err != nil {
+            log.Fatal(err)
+        }
+        // do something with result....
         fmt.Println(result["entry"])
 
     }
