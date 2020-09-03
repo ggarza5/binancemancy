@@ -4,10 +4,13 @@ import (
 	"context"
 	_ "encoding/json"
 	"fmt"
+	"github.com/ggarza5/binacemancy/execution"
 	"github.com/ggarza5/go-binance-margin"
+	"github.com/ggarza5/go-binance-margin/common"
 	"github.com/pborman/getopt/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+
 	// "go.mongodb.org/mongo-driver/bson/primitive/objectid"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -60,365 +63,6 @@ var (
 	minimumOrderSize = 0.0001
 	positionSize     = 0.006
 
-	positionPrecisions = map[string]int{
-		"ETH":   3,
-		"BNB":   2,
-		"LINK":  0,
-		"XRP":   0,
-		"ALGO":  0,
-		"ATOM":  2,
-		"XEM":   0,
-		"FET":   0,
-		"IOTX":  0,
-		"PHB":   0,
-		"CELR":  0,
-		"CHZ":   0,
-		"DLT":   0,
-		"EOS":   2,
-		"GRS":   0,
-		"KEY":   0,
-		"MITH":  0,
-		"ARN":   0,
-		"WRX":   0,
-		"ZEC":   3,
-		"BTG":   2,
-		"DREP":  0,
-		"GVT":   2,
-		"REN":   0,
-		"SC":    0,
-		"DOCK":  0,
-		"BQX":   0,
-		"FTT":   2,
-		"KMD":   2,
-		"NAV":   0,
-		"ANKR":  0,
-		"BCD":   0,
-		"BRD":   0,
-		"GNT":   0,
-		"MCO":   2,
-		"MTL":   0,
-		"REP":   3,
-		"STORJ": 0,
-		"BAND":  0,
-		"DUSK":  0,
-		"LSK":   2,
-		"MFT":   0,
-		"POLY":  0,
-		"THETA": 0,
-		"DNT":   0,
-		"DOGE":  0,
-		"GTO":   0,
-		"OMG":   2,
-		"OST":   0,
-		"NAS":   2,
-		"RCN":   0,
-		"TOMO":  0,
-		"ZIL":   0,
-		"LUN":   2,
-		"CDT":   0,
-		"NXS":   0,
-		"POE":   0,
-		"SNM":   0,
-		"SYS":   0,
-		"WPR":   0,
-		"XVG":   0,
-		"ARDR":  0,
-		"YOYO":  0,
-		"BNT":   0,
-		"DGD":   3,
-		"ENG":   0,
-		"KNC":   0,
-		"QSP":   0,
-		"APPC":  0,
-		"VITE":  0,
-		"PPT":   0,
-		"ARPA":  0,
-		"EVX":   0,
-		"KAVA":  0,
-		"ONT":   2,
-		"WABI":  0,
-		"WTC":   2,
-		"AION":  0,
-		"GAS":   2,
-		"NEO":   2,
-		"OGN":   0,
-		"ONE":   0,
-		"SKY":   0,
-		"CVC":   0,
-		"GO":    0,
-		"STX":   0,
-		"TROY":  0,
-		"AE":    0,
-		"LRC":   0,
-		"LTO":   0,
-		"NULS":  0,
-		"PIVX":  0,
-		"BLZ":   0,
-		"FUEL":  0,
-		"MDA":   0,
-		"VIA":   0,
-		"WAN":   0,
-		"DCR":   3,
-		"DASH":  3,
-		"EDO":   0,
-		"FUN":   0,
-		"HOT":   0,
-		"ICX":   0,
-		"INS":   0,
-		"MANA":  0,
-		"BTS":   0,
-		"STEEM": 0,
-		"TNT":   0,
-		"TRX":   0,
-		"VIBE":  0,
-		"WAVES": 2,
-		"OAX":   0,
-		"LOOM":  0,
-		"LTC":   2,
-		"STORM": 0,
-		"XZC":   2,
-		"ELF":   0,
-		"ENJ":   0,
-		"MATIC": 0,
-		"NKN":   0,
-		"PERL":  0,
-		"RLC":   0,
-		"STRAT": 0,
-		"VIB":   0,
-		"ARK":   0,
-		"XTZ":   2,
-		"DATA":  0,
-		"ETC":   2,
-		"GXS":   0,
-		"IOST":  0,
-		"IOTA":  0,
-		"IRIS":  0,
-		"XLM":   0,
-		"CND":   0,
-		"POA":   0,
-		"RVN":   0,
-		"LEND":  0,
-		"ZEN":   2,
-		"BCH":   3,
-		"BAT":   0,
-		"QKC":   0,
-		"TFUEL": 0,
-		"ADA":   0,
-		"COS":   0,
-		"MTH":   0,
-		"QTUM":  2,
-		"CMT":   0,
-		"AMB":   0,
-		"FTM":   0,
-		"SNGLS": 0,
-		"SNT":   0,
-		"TNB":   0,
-		"VET":   0,
-		"ADX":   0,
-		"BCPT":  0,
-		"BEAM":  2,
-		"POWR":  0,
-		"AGI":   0,
-		"ERD":   0,
-		"MBL":   0,
-		"ONG":   0,
-		"XMR":   3,
-		"COCOS": 0,
-		"HC":    2,
-		"RDN":   0,
-		"ZRX":   0,
-		"QLC":   0,
-		"CTXC":  0,
-		"HBAR":  0,
-		"NCASH": 0,
-		"NEBL":  0,
-		"REQ":   0,
-		"TCT":   0,
-		"AST":   0,
-		"NANO":  2,
-		"SOL":   0,
-		"SXP":   0,
-	}
-
-	pricePrecisions = map[string]int{
-		"FET":   8,
-		"IOTX":  8,
-		"PHB":   8,
-		"XEM":   8,
-		"CELR":  8,
-		"CHZ":   8,
-		"DLT":   8,
-		"EOS":   7,
-		"GRS":   8,
-		"KEY":   8,
-		"MITH":  8,
-		"ARN":   8,
-		"WRX":   8,
-		"ZEC":   6,
-		"BTG":   6,
-		"DREP":  8,
-		"GVT":   7,
-		"REN":   8,
-		"SC":    8,
-		"DOCK":  8,
-		"BQX":   8,
-		"FTT":   7,
-		"KMD":   7,
-		"NAV":   8,
-		"ANKR":  8,
-		"BCD":   8,
-		"BRD":   8,
-		"GNT":   8,
-		"MCO":   7,
-		"MTL":   8,
-		"REP":   6,
-		"STORJ": 8,
-		"BAND":  8,
-		"DUSK":  8,
-		"LSK":   7,
-		"MFT":   8,
-		"POLY":  8,
-		"THETA": 8,
-		"DNT":   8,
-		"DOGE":  8,
-		"GTO":   8,
-		"OMG":   7,
-		"OST":   8,
-		"ALGO":  8,
-		"NAS":   7,
-		"RCN":   8,
-		"TOMO":  8,
-		"ZIL":   8,
-		"LUN":   7,
-		"CDT":   8,
-		"NXS":   8,
-		"POE":   8,
-		"SNM":   8,
-		"SYS":   8,
-		"WPR":   8,
-		"XVG":   8,
-		"ARDR":  8,
-		"YOYO":  8,
-		"BNT":   8,
-		"DGD":   6,
-		"ENG":   8,
-		"KNC":   8,
-		"QSP":   8,
-		"APPC":  8,
-		"VITE":  8,
-		"PPT":   8,
-		"ARPA":  8,
-		"EVX":   8,
-		"KAVA":  8,
-		"ONT":   7,
-		"WABI":  8,
-		"WTC":   7,
-		"AION":  8,
-		"GAS":   7,
-		"LINK":  8,
-		"NEO":   6,
-		"OGN":   8,
-		"ONE":   8,
-		"SKY":   8,
-		"CVC":   8,
-		"ETH":   6,
-		"GO":    8,
-		"STX":   8,
-		"TROY":  8,
-		"AE":    8,
-		"LRC":   8,
-		"LTO":   8,
-		"NULS":  8,
-		"PIVX":  8,
-		"BLZ":   8,
-		"FUEL":  8,
-		"MDA":   8,
-		"VIA":   8,
-		"WAN":   8,
-		"DCR":   6,
-		"DASH":  6,
-		"EDO":   8,
-		"FUN":   8,
-		"HOT":   8,
-		"ICX":   8,
-		"INS":   8,
-		"MANA":  8,
-		"BTS":   8,
-		"STEEM": 8,
-		"TNT":   8,
-		"TRX":   8,
-		"VIBE":  8,
-		"WAVES": 7,
-		"OAX":   8,
-		"LOOM":  8,
-		"LTC":   6,
-		"STORM": 8,
-		"XZC":   7,
-		"ELF":   8,
-		"ENJ":   8,
-		"MATIC": 8,
-		"NKN":   8,
-		"PERL":  8,
-		"RLC":   8,
-		"STRAT": 8,
-		"VIB":   8,
-		"ARK":   8,
-		"XTZ":   7,
-		"DATA":  8,
-		"ETC":   7,
-		"GXS":   8,
-		"IOST":  8,
-		"IOTA":  8,
-		"IRIS":  8,
-		"XLM":   8,
-		"CND":   8,
-		"POA":   8,
-		"RVN":   8,
-		"BNB":   7,
-		"LEND":  8,
-		"ZEN":   7,
-		"BCH":   6,
-		"BAT":   8,
-		"QKC":   8,
-		"TFUEL": 8,
-		"ADA":   8,
-		"COS":   8,
-		"MTH":   8,
-		"QTUM":  7,
-		"CMT":   8,
-		"AMB":   8,
-		"FTM":   8,
-		"SNGLS": 8,
-		"SNT":   8,
-		"TNB":   8,
-		"VET":   8,
-		"ADX":   8,
-		"ATOM":  7,
-		"BCPT":  8,
-		"BEAM":  7,
-		"POWR":  8,
-		"AGI":   8,
-		"ERD":   8,
-		"MBL":   8,
-		"ONG":   8,
-		"XMR":   6,
-		"COCOS": 8,
-		"HC":    7,
-		"RDN":   8,
-		"ZRX":   8,
-		"QLC":   8,
-		"CTXC":  8,
-		"HBAR":  8,
-		"NCASH": 8,
-		"NEBL":  8,
-		"REQ":   8,
-		"TCT":   8,
-		"XRP":   8,
-		"AST":   8,
-		"NANO":  7,
-		"SOL":   8,
-		"SXP":   8,
-	}
 	positionSizes = map[string]float64{
 		"ICX":   1,
 		"MATIC": 1,
@@ -699,7 +343,7 @@ func checkAndFixPrices(price string) {
 	// println(decimalIndex)
 	// precision := len(price) - decimalIndex - 2
 	// println(precision)
-	zerosToAdd := 8 - pricePrecisions[pairs[0]]
+	zerosToAdd := 8 - common.PricePrecisions[pairs[0]]
 	for i, e := range entries {
 		fl, _ := strconv.ParseInt(e, 10, 64)
 		entries[i] = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
@@ -1452,22 +1096,22 @@ func limitOrder(client *binance.Client, direction binance.SideType, asset string
  ************************
  */
 func calculateOrderSizeFromPrecision(asset string, size float64, passedMultiplier float64) string {
-	size = math.Floor(size*math.Pow10(positionPrecisions[asset])) / float64(math.Pow10(positionPrecisions[asset]))
-	if positionPrecisions[asset] == 0 {
+	size = math.Floor(size*math.Pow10(common.PositionPrecisions[asset])) / float64(math.Pow10(common.PositionPrecisions[asset]))
+	if common.PositionPrecisions[asset] == 0 {
 		return fmt.Sprintf("%d", int64(passedMultiplier*size))
-	} else if positionPrecisions[asset] == 1 {
+	} else if common.PositionPrecisions[asset] == 1 {
 		return fmt.Sprintf("%.1f", passedMultiplier*size)
-	} else if positionPrecisions[asset] == 2 {
+	} else if common.PositionPrecisions[asset] == 2 {
 		return fmt.Sprintf("%.2f", passedMultiplier*size)
-	} else if positionPrecisions[asset] == 3 {
+	} else if common.PositionPrecisions[asset] == 3 {
 		return fmt.Sprintf("%.3f", passedMultiplier*size)
-	} else if positionPrecisions[asset] == 4 {
+	} else if common.PositionPrecisions[asset] == 4 {
 		return fmt.Sprintf("%.4f", passedMultiplier*size)
-	} else if positionPrecisions[asset] == 5 {
+	} else if common.PositionPrecisions[asset] == 5 {
 		return fmt.Sprintf("%.5f", passedMultiplier*size)
-	} else if positionPrecisions[asset] == 6 {
+	} else if common.PositionPrecisions[asset] == 6 {
 		return fmt.Sprintf("%.6f", passedMultiplier*size)
-	} else if positionPrecisions[asset] == 7 {
+	} else if common.PositionPrecisions[asset] == 7 {
 		return fmt.Sprintf("%.7f", passedMultiplier*size)
 	} else {
 		return fmt.Sprintf("%.8f", passedMultiplier*size)
@@ -1480,22 +1124,22 @@ func calculateOrderSizeFromPrecision(asset string, size float64, passedMultiplie
  ************************
  */
 func calculateOrderPriceFromPrecision(asset string, price float64) string {
-	price = math.Floor(price*math.Pow10(pricePrecisions[asset])) / float64(math.Pow10(pricePrecisions[asset]))
-	if positionPrecisions[asset] == 0 {
+	price = math.Floor(price*math.Pow10(common.PricePrecisions[asset])) / float64(math.Pow10(common.PricePrecisions[asset]))
+	if common.PositionPrecisions[asset] == 0 {
 		return fmt.Sprintf("%d", int64(price))
-	} else if positionPrecisions[asset] == 1 {
+	} else if common.PositionPrecisions[asset] == 1 {
 		return fmt.Sprintf("%.1f", price)
-	} else if positionPrecisions[asset] == 2 {
+	} else if common.PositionPrecisions[asset] == 2 {
 		return fmt.Sprintf("%.2f", price)
-	} else if positionPrecisions[asset] == 3 {
+	} else if common.PositionPrecisions[asset] == 3 {
 		return fmt.Sprintf("%.3f", price)
-	} else if positionPrecisions[asset] == 4 {
+	} else if common.PositionPrecisions[asset] == 4 {
 		return fmt.Sprintf("%.4f", price)
-	} else if positionPrecisions[asset] == 5 {
+	} else if common.PositionPrecisions[asset] == 5 {
 		return fmt.Sprintf("%.5f", price)
-	} else if positionPrecisions[asset] == 6 {
+	} else if common.PositionPrecisions[asset] == 6 {
 		return fmt.Sprintf("%.6f", price)
-	} else if positionPrecisions[asset] == 7 {
+	} else if common.PositionPrecisions[asset] == 7 {
 		return fmt.Sprintf("%.7f", price)
 	} else {
 		return fmt.Sprintf("%.8f", price)
@@ -1548,11 +1192,11 @@ func calculateNumberOfCoinsToBuy(price string) float64 {
 //     } else {
 //         priceOffset = price * offset * -1
 //     }
-//     if (pricePrecisions[asset] == 2) {
+//     if (common.PricePrecisions[asset] == 2) {
 //         return fmt.Sprintf("%.2f", price - priceOffset)
-//     } else if (pricePrecisions[asset] == 3) {
+//     } else if (common.PricePrecisions[asset] == 3) {
 //         return fmt.Sprintf("%.3f", price - priceOffset)
-//     } else if (pricePrecisions[asset] == 4) {
+//     } else if (common.PricePrecisions[asset] == 4) {
 //         return fmt.Sprintf("%.4f", price - priceOffset)
 //     } else {
 //         return fmt.Sprintf("%.5f", price - priceOffset)
