@@ -4,7 +4,7 @@ import (
 	"context"
 	_ "encoding/json"
 	"fmt"
-	"github.com/ggarza5/binacemancy/execution"
+	"github.com/ggarza5/binancemancy/execution"
 	"github.com/ggarza5/go-binance-margin"
 	"github.com/ggarza5/go-binance-margin/common"
 	"github.com/pborman/getopt/v2"
