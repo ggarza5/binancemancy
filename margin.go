@@ -189,7 +189,7 @@ func convertPairsToBinanceUserAssets(pairsArgument []string) []binance.UserAsset
 }
 
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
-func cleanFlagArguments() {  
+func cleanFlagArguments() {
     printFlagArguments()
     if len(pairsFlag) != 0 {
         if pairsFlag[0] == ' ' || pairsFlag[0] == '=' {
@@ -342,7 +342,7 @@ func main() {
         //close the open margin positions
         closeMarginPositions(openMarginPositions)
     } else if mode == "server" {
-        setupServer()
+        SetupServer()
     } else if mode == "records" {
         // retrieveRecords()
         _, r := client.NewListMarginLoansService().Asset(pairs[0]).Do(context.Background())
@@ -380,7 +380,6 @@ func cancelSpotOrders(orders []*binance.Order) {
     }
 }
 
-
 func getLowestStopLoss(orders []*binance.Order) *binance.Order {
     var lowOrder *binance.Order
     for _, o := range orders {
@@ -389,62 +388,62 @@ func getLowestStopLoss(orders []*binance.Order) *binance.Order {
                 lowOrder = o
             } else if o.StopPrice < lowOrder.StopPrice {
                 lowOrder = o
-            }   
+            }
         } else if o.Type == binance.OrderTypeStopLossLimit {
             if lowOrder == nil {
                 lowOrder = o
             } else if o.StopPrice < lowOrder.StopPrice {
                 lowOrder = o
-            }   
+            }
         }
     }
     return lowOrder
-}  
+}
 
-func getHighestStopLoss(orders []*binance.Order) *binance.Order{
-    var highOrder *binance.Order 
+func getHighestStopLoss(orders []*binance.Order) *binance.Order {
+    var highOrder *binance.Order
     for _, o := range orders {
         if o.Type == binance.OrderTypeStopLoss {
             if highOrder == nil {
                 highOrder = o
             } else if o.StopPrice > highOrder.StopPrice {
                 highOrder = o
-            }   
+            }
         } else if o.Type == binance.OrderTypeStopLossLimit {
             if highOrder == nil {
                 highOrder = o
             } else if o.StopPrice > highOrder.StopPrice {
                 highOrder = o
-            }   
+            }
         }
     }
     return highOrder
-} 
+}
 
 func stringToFloat(num string) float64 {
     floatBorrowed, errBorrowed := strconv.ParseFloat(num, 64)
     if errBorrowed != nil {
-        log.Fatal("ERR INN STRING TO FLOAT")        
+        log.Fatal("ERR INN STRING TO FLOAT")
     }
     return floatBorrowed
-}  
+}
 
 func cancelStop(stop *binance.Order) {
     _, cancelErr := client.NewCancelMarginOrderService().Symbol(stop.Symbol).OrderID(stop.OrderID).Do(context.Background())
     if cancelErr != nil {
         errorTokens := strings.Split(cancelErr.Error(), " ")
         //TODO: investigate library and structs and whether i am handling this wrong. Non-breaking
-        if !stringsContains(errorTokens, "unmarshal") && !stringsContains(errorTokens, "CancelOrderResponse.orderId") { 
+        if !stringsContains(errorTokens, "unmarshal") && !stringsContains(errorTokens, "CancelOrderResponse.orderId") {
             // println("got an error canceling stop in closeMarginPositions for " + k)
-        // } else {
+            // } else {
             println("got an error canceling stop in cancelStop for " + stop.Symbol)
             log.Fatal(cancelErr)
         }
-    }   
+    }
 }
 
 func closeMarginPositions(openPositions map[string]float64) {
-        println("GOT THROUG EXCLUSIons")    
+    println("GOT THROUG EXCLUSIons")
     for k, v := range openPositions {
         if pairsFlag != "" {
             if !Includes(pairs, k) {
@@ -453,7 +452,7 @@ func closeMarginPositions(openPositions map[string]float64) {
         }
         if k == "BTC" {
             continue
-        }       
+        }
 
         if stringsContains(excludedPairs, k) {
             continue
@@ -477,13 +476,13 @@ func closeMarginPositions(openPositions map[string]float64) {
             lowStop := getLowestStopLoss(openOrders)
             if lowStop != nil {
                 cancelStop(lowStop)
-                marketOrder(client, binance.SideTypeSell, k, calculateOrderSizeFromPrecision(k, v*proportion))                
+                marketOrder(client, binance.SideTypeSell, k, calculateOrderSizeFromPrecision(k, v*proportion))
                 //only put on a new stop loss if we are not closing the full position
                 if proportion != 1.0 {
-                    stopOrder(client, lowStop.Side, k, calculateOrderSizeFromPrecision(k,stringToFloat(lowStop.OrigQuantity) - stringToFloat(lowStop.ExecutedQuantity) - stringToFloat(calculateOrderSizeFromPrecision(k, v*proportion))), lowStop.Price, lowStop.Type)                    
+                    stopOrder(client, lowStop.Side, k, calculateOrderSizeFromPrecision(k, stringToFloat(lowStop.OrigQuantity)-stringToFloat(lowStop.ExecutedQuantity)-stringToFloat(calculateOrderSizeFromPrecision(k, v*proportion))), lowStop.Price, lowStop.Type)
                 }
             } else {
-                marketOrder(client, binance.SideTypeSell, k, calculateOrderSizeFromPrecision(k, v*proportion))                                
+                marketOrder(client, binance.SideTypeSell, k, calculateOrderSizeFromPrecision(k, v*proportion))
             }
         } else {
             openOrders, listOrdersErr := client.NewListMarginOpenOrdersService().Symbol(getTradingSymbol(k)).Do(context.Background())
@@ -493,14 +492,14 @@ func closeMarginPositions(openPositions map[string]float64) {
             }
             highStop := getHighestStopLoss(openOrders)
             if highStop == nil {
-                marketOrder(client, binance.SideTypeBuy, k, calculateOrderSizeFromPrecision(k, -1*v))                                
-            } else {  
-                cancelStop(highStop)         
-                marketOrder(client, binance.SideTypeBuy, k, calculateOrderSizeFromPrecision(k, -1*v))                                
+                marketOrder(client, binance.SideTypeBuy, k, calculateOrderSizeFromPrecision(k, -1*v))
+            } else {
+                cancelStop(highStop)
+                marketOrder(client, binance.SideTypeBuy, k, calculateOrderSizeFromPrecision(k, -1*v))
                 //only put on a new stop loss if we are not closing the full position
                 if proportion != 1.0 {
-                    stopOrder(client, highStop.Side, k, calculateOrderSizeFromPrecision(k,stringToFloat(highStop.OrigQuantity) - stringToFloat(highStop.ExecutedQuantity) - stringToFloat(calculateOrderSizeFromPrecision(k, -1*v*proportion))), highStop.Price, highStop.Type)                    
-                }                
+                    stopOrder(client, highStop.Side, k, calculateOrderSizeFromPrecision(k, stringToFloat(highStop.OrigQuantity)-stringToFloat(highStop.ExecutedQuantity)-stringToFloat(calculateOrderSizeFromPrecision(k, -1*v*proportion))), highStop.Price, highStop.Type)
+                }
             }
         }
     }
@@ -629,7 +628,7 @@ func closeHandler(w http.ResponseWriter, r *http.Request) {
 
 func cancelMarginOrders(orders []*binance.Order) {
     for _, order := range orders {
-        //if we are only closing a portion of the position, then leave the stop losses open 
+        //if we are only closing a portion of the position, then leave the stop losses open
         if order.Type == binance.OrderTypeStopLoss || order.Type == binance.OrderTypeStopLossLimit {
             continue
         }
@@ -898,10 +897,10 @@ func marketOrder(client *binance.Client, direction binance.SideType, asset strin
 func stopOrder(client *binance.Client, direction binance.SideType, asset string, size string, price string, orderType binance.OrderType) error {
     stopOrder, stopErr := client.NewCreateMarginOrderService().Symbol(getTradingSymbol(asset)).
         Side(direction).Type(orderType).Quantity(size).TimeInForce(binance.TimeInForceTypeGTC).Price(price).StopPrice(price).
-        SideEffectType(binance.SideEffectTypeAutoRepay).Do(context.Background())                
+        SideEffectType(binance.SideEffectTypeAutoRepay).Do(context.Background())
     if stopErr != nil {
         println("got an error making new stop in closeMarginPositions for " + asset)
-        log.Fatal(stopErr)                            
+        log.Fatal(stopErr)
     }
     println("Stop Order: ")
     fmt.Println(stopOrder)

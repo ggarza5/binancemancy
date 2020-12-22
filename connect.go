@@ -22,6 +22,12 @@ func handleError(err error) {
     }
 }
 
+func check(e error) {
+    if e != nil {
+        panic(e)
+    }
+}
+
 func main() {
 
     ctx := context.TODO()

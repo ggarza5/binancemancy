@@ -4,7 +4,7 @@ import (
 	"context"
 	_ "encoding/json"
 	"fmt"
-	"github.com/ggarza5/binancemancy/execution"
+	_ "github.com/ggarza5/binancemancy/execution"
 	"github.com/ggarza5/go-binance-margin"
 	"github.com/ggarza5/go-binance-margin/common"
 	"github.com/pborman/getopt/v2"
@@ -26,6 +26,7 @@ import (
 )
 
 //TODO: ReduceTrade Dust prevention
+//TODO: correct calls that forget to add trailing 0s to the sat numbers for entry/exits
 
 var (
 	mongoUsername            = "admin"
@@ -336,14 +337,49 @@ func isSymbolABTCTicker(s *binance.SymbolPrice) bool {
 	}
 }
 
-func checkAndFixPrices(price string) {
-	//all you need to do is check the number of digits after the decimal
-	// decimalIndex := strings.Index(price, ".")
-	// println(price)
-	// println(decimalIndex)
-	// precision := len(price) - decimalIndex - 2
-	// println(precision)
-	zerosToAdd := 8 - common.PricePrecisions[pairs[0]]
+func getNegativeOrderOfMagnitude(price string) int {
+	order := 0
+	priceFloat := parseFloatHandleErr(price)
+	for order = 0; priceFloat < 1.0; priceFloat *= 10 {
+		order = order - 1
+	}
+	return order
+}
+
+//if passed a whole number = want order of magnitude
+//if passed a decimal: want to make it a whole number then get order of magnitude
+func getPositiveOrderOfMagnitude(price string) int {
+	order := 0
+	priceFloat := parseFloatHandleErr(price)
+	for order = 0; priceFloat > 1.0; priceFloat /= 10 {
+		order = order + 1
+	}
+	return order
+}
+
+func getNumSigFigs(price string) int {
+	priceFloat := parseFloatHandleErr(price)
+	if priceFloat > 0 {
+		return getPositiveOrderOfMagnitude(price)
+	} else {
+		wholeNumberPrice := float64(10^(getNegativeOrderOfMagnitude(price)*-1)) * priceFloat
+		wholeNumberPriceString := strconv.FormatFloat(wholeNumberPrice, 'E', -1, 64)
+		return getPositiveOrderOfMagnitude(wholeNumberPriceString)
+	}
+}
+
+// func fixForWholeNumber(price string, entry float) {
+// 	mostSignificantOom := getNegativeOrderOfMagnitude(price)
+// 	sigFigs := getNumSigFigs(entry)
+// 	numLeadingZeros := mostSignificantOom*-1 - 1
+// 	zerosToAdd := common.PricePrecisions[pairs[0]] - numLeadingZeros - sigFigs
+// }
+
+// func fixForDecimal(price string, entry float) {
+
+// }
+
+func addZeros(zerosToAdd int) {
 	for i, e := range entries {
 		fl, _ := strconv.ParseInt(e, 10, 64)
 		entries[i] = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
@@ -354,7 +390,34 @@ func checkAndFixPrices(price string) {
 	}
 	fl, _ := strconv.ParseInt(slFlag, 10, 64)
 	sl = strconv.FormatInt(fl*int64(math.Pow10(zerosToAdd)), 10)
+}
 
+func getNumLeadingZeros(price string) int {
+	mostSignificantOom := getNegativeOrderOfMagnitude(price)
+	println(mostSignificantOom)
+	numLeadingZeros := mostSignificantOom*-1 - 2
+	return numLeadingZeros
+}
+
+func checkAndFixPrices(price string) {
+	//Z = numReq - numIncluded
+	//numReq = pricePrec - most significant oom - pricePrecision
+	//price precision = price num leading zeros + numDigitsPassed + numToAdd
+	priceFloat := parseFloatHandleErr(price)
+	if priceFloat > 1 {
+		return
+	}
+	// entryFloat := parseFloatHandleErr(entries[0])
+	// if entryFloat > 1 {
+	// 	fixForWholeNumber(price, entryFloat)
+	// } else {
+	// 	fixForDecimal(price, entryFloat)
+	// }
+	mostSignificantOom := getNegativeOrderOfMagnitude(price)
+	sigFigs := getNumSigFigs(entries[0])
+	numLeadingZeros := mostSignificantOom*-1 - 1
+	zerosToAdd := common.PricePrecisions[pairs[0]] - numLeadingZeros - sigFigs
+	addZeros(zerosToAdd)
 }
 
 //end getopt initialization
@@ -538,8 +601,10 @@ func handleCloseLogic(openSpotPositions map[string]float64) {
 func handleTPWithoutOpening(tp string, passedMultiplier float64) {
 	currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
 	fmt.Println("jerere")
-	if satsToBitcoin(tp) < currentPrice {
-		fmt.Println(tp)
+	//special case:
+	//if 3 leading zeros and 4 sig figs, multiply by 10
+	if satsToBitcoin(tp)  < currentPrice {
+		fmt.Println(satsToBitcoin(tp))
 		fmt.Println(currentPrice)
 		log.Fatal("couldnt do this order")
 	}
@@ -553,19 +618,45 @@ func handleTPWithoutOpening(tp string, passedMultiplier float64) {
 	fmt.Println(o)
 }
 
+//TODO: Need to integrate PricePrecisions into the sigFig and exponent calculation
 func handleTP(tp string) {
+	prec := common.PricePrecisions[pairs[0]]
+	if prec == 0 {
+		log.Fatal("If we don't get past this statement, you need to add the coin to PricePrecisions in go-margin/commons/helpers")
+	}
 	currentPrice := parseFloatHandleErr(prices[getTradingSymbol(pairs[0])])
-	if satsToBitcoin(tp) < currentPrice {
-		fmt.Println(tp)
+	// println("line 618")
+	// println(tp)
+	// numLeadingZeros := getNumLeadingZeros(floatToString(satsToBitcoin(tp)))
+	// println("num leading zeros", numLeadingZeros)
+	// sigFigs := getNumSigFigs(floatToString(satsToBitcoin(tp)))
+	// exponent := numLeadingZeros + sigFigs
+	// //if numLeadingZeros + numSigFigs = 8, then forego the whole exponentiation stuff
+	// tpF := parseFloatHandleErr(tp)
+	if satsToBitcoin(tp)  < currentPrice {
+		fmt.Println(satsToBitcoin(tp))
 		fmt.Println(currentPrice)
 		log.Fatal("couldnt do this order")
 	}
+
+	// if tpF / math.Pow10(exponent) < currentPrice {
+	// 	// println(8 - numLeadingZeros - sigFigs)
+	// 	// fmt.Println(float64((10^(8 - numLeadingZeros - sigFigs))))
+	// 	fmt.Println(tpF / float64(math.Pow10(exponent)))
+	// 	fmt.Println(currentPrice)
+	// 	log.Fatal("couldnt do this order")
+	// }
+
 	highEntry := entries[len(entries)-1]
+	// println(floatToString(parseFloatHandleErr(highEntry)/math.Pow10(8 - exponent)))
+	// println(math.Pow10(8 - exponent))
+	// numCoins := calculateNumberOfCoinsToBuy(floatToString(parseFloatHandleErr(highEntry)*math.Pow10(8 - exponent)))
 	numCoins := calculateNumberOfCoinsToBuy(highEntry)
+	println("numCoinsToBuy", numCoins)
 	size := calculateOrderSizeFromPrecision(pairs[0], numCoins, positionMultiplier)
-	println("in handletp")
+	// println("in handletp")
 	marketOrder(client, stringToSide("BUY"), getTradingSymbol(pairs[0]), size)
-	println("in handletp")
+	// println("in handletp")
 	btcPrice := satsToBitcoin(tp)
 	o, err := client.NewCreateOCOService().Symbol(getTradingSymbol(pairs[0])).Side(binance.SideTypeSell).StopPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).
 		StopLimitPrice(fmt.Sprintf("%.8f", satsToBitcoin(sl))).Price(fmt.Sprintf("%.8f", btcPrice)).Quantity(size).StopLimitTimeInForce("GTC").Do(context.Background())
@@ -622,7 +713,10 @@ func addTradeToMongo() {
 		"lastUpdate": primitive.Timestamp{T: uint32(time.Now().Unix())},
 	})
 	handleError(err)
-	fmt.Println(res)
+	if err.Error() != "" {
+		println(err.Error())
+		fmt.Println(res)
+	}
 }
 
 func addReducedTradeToMongo(trade Trade, numCoinsArgument float64, multiplierArgument float64) {
@@ -639,7 +733,10 @@ func addReducedTradeToMongo(trade Trade, numCoinsArgument float64, multiplierArg
 		"lastUpdate": primitive.Timestamp{T: uint32(time.Now().Unix())},
 	})
 	handleError(err)
-	fmt.Println(res)
+	if err.Error() != "" {
+		println(err.Error())
+		fmt.Println(res)
+	}
 }
 
 func executeBotLogic(openSpotPositions map[string]float64) {
@@ -997,6 +1094,10 @@ func round(x, unit float64) float64 {
 func satsToBitcoin(u string) float64 {
 	// println("in prob func")
 	// println(u)
+	floatU := parseFloatHandleErr(u)
+	if floatU < 1 {
+		return floatU
+	}
 	ii, _ := strconv.Atoi(u)
 	// println(ii)
 	return float64(ii) / math.Pow10(int(8))
@@ -1088,6 +1189,10 @@ func limitOrder(client *binance.Client, direction binance.SideType, asset string
 		return
 	}
 	fmt.Println(order)
+}
+
+func floatToString(floater float64) string {
+	return fmt.Sprintf("%f", floater)
 }
 
 /*
