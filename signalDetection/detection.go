@@ -15,6 +15,10 @@ import (
 	"strings"
 )
 
+//TODO
+//calculate trendlines
+//use intercept and slope, and then implement "go with market" strategy as structure gains uncertainty
+
 func check(e error) {
 	if e != nil {
 		panic(e)

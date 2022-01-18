@@ -6,14 +6,11 @@ import (
     discordGo "github.com/bwmarrin/discordgo"
 
     "github.com/ggarza5/go-binance-futures"
-    // "github.com/adshao/go-binance"
     "github.com/ggarza5/go-binance-futures/common"
     "github.com/ggarza5/technical-indicators"
     "github.com/pborman/getopt/v2"
     "log"
-    // "html/template"
     "os"
-    // "path/filepath"
     gCommon "github.com/ggarza5/alpaca-first/common"
     pretty "github.com/inancgumus/prettyslice"
     "math"
@@ -58,7 +55,6 @@ func Includes(vs []string, t string) bool {
     return Index(vs, t) >= 0
 }
 
-//begin getopt initialization
 
 /*
  * function init
@@ -74,11 +70,26 @@ func init() {
 
 }
 
+
+/*
+ * function getAccount
+ * params:
+ ************************
+ * Gets our account object from binance.
+ */
 func getAccount(client *binance.Client) *binance.Account {
     account, _ := client.NewGetAccountService().Do(context.Background())
     return account
 }
 
+
+/*
+ * TODO
+ * function init
+ * params:
+ ************************
+ * Initiates the global flag variables
+ */
 func getPositions(*binance.Account) {
     // account.Positions
 }
@@ -96,8 +107,17 @@ func printFlagArguments() {
     println(mode)
 }
 
+
+/*
+ * function parseCommandFlags
+ * params: parse
+ ************************
+ * Parses the flags passed to the command on the console and sets the execution mode 
+ * of the libray.
+ */
 //TODO:genericize cleaning of arguments using "reflect" package and interface pointers
-func cleanFlagArguments() {
+
+func parseCommandFlags() {
     if len(TradeDirection) == 0 {
         TradeDirection = "cancel"
     } else if TradeDirection[0] == ' ' || TradeDirection[0] == '=' {
@@ -148,12 +168,11 @@ func cleanFlagArguments() {
     }
 }
 
-//TODO
-// func shortIfPriceClosedBelowLevel(client *binance.Client, pair string, timeframe string, price string)
-//calculate trendlines
-//use intercept and slope
-
-//func shortIfPriceClosedBelowTrend
+/*
+ * *********************************************************************
+ * ***********CONSTANTS for Indicator Calculation & Handling************
+ * *********************************************************************
+*/
 
 var globalKlines = make([]*binance.WsKlineEvent, 0)
 var globalKlineIndex = 0
@@ -188,7 +207,15 @@ var discordAuthToken = "ODc4ODU0ODY2MjI5OTQ0MzQw.YSHPYA.EJuBjlGTe1VMXrHTFc55bWv2
 var staffChannelId = "719691307983044671"
 var testSharkPrivId = "717509948489203823"
 
-func popFloatSlice(s []float64, slen int) []float64 {
+
+/*
+ * function printFlagArguments
+ * params:
+ ************************
+ * Logs the length of a slice, then pops the slice if beyond our specified time series length
+ *  - used for indictator time series tracking
+ */
+func popFloatSliceAndLog(s []float64, slen int) []float64 {
     println("the length of the slice is ")
     println(len(s))
     if len(s) > slen {
@@ -200,6 +227,27 @@ func popFloatSlice(s []float64, slen int) []float64 {
     }
 }
 
+/*
+ * function popFloatSlice
+ * params: slice ([]float64, specified legnth (int)
+ ************************
+ * Pops a slice if it's beyond our specified time series length
+ */
+func popFloatSlice(s []float64, slen int) []float64 {   
+    if len(s) > slen {
+        return s[1:]
+    } else {
+        return s
+    }
+}
+
+
+/*
+ * function printCloud
+ * params:
+ ************************
+ * Pops a slice if it's beyond our specified time series length
+ */
 func printCloud(a ...[]float64) {
     for i, x := range a {
         pretty.Show("cloud line "+strconv.Itoa(i), x)
@@ -213,6 +261,12 @@ func printCloud(a ...[]float64) {
 //first edition
 //only calculate indicator on candle closes
 
+/*
+ * function listenOnSocket
+ * params: client *binance.Client, pair string, timeframe string, sess *discordGo.Session
+ ************************
+ * Deines a handler to listen to signal events coming from the price eolution on binance. Handles the changes in price in a control flow
+ */
 func listenOnSocket(client *binance.Client, pair string, timeframe string, sess *discordGo.Session) {
     wsKlineHandler := func(event *binance.WsKlineEvent) {
         if !event.Kline.IsFinal {
@@ -248,7 +302,27 @@ func listenOnSocket(client *binance.Client, pair string, timeframe string, sess 
         // }
 
         // }
-        //start calculating Bollinger Bands
+       
+    }
+    errHandler := func(err error) {
+        fmt.Println(err)
+    }
+    doneC, _, err := binance.WsKlineServe(pair, timeframe, wsKlineHandler, errHandler)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    <-doneC
+}
+
+//TODO
+/*
+ * func BollingerBands(data)
+ * Calculates the Bollinger Bands of a price series, which is simply the 2 standard deviation range of the
+ * time series distribution
+*/
+func BollingerBands() {}
+ //start calculating Bollinger Bands
         /*if len(dummyCloses) >= 20 {
             middle, upper, lower := indicators.BollingerBands(dummyCloses, 20, 2.0)
             _, _, _ = middle, upper, lower
@@ -266,26 +340,22 @@ func listenOnSocket(client *binance.Client, pair string, timeframe string, sess 
             _, _, _, _, _ = conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan
             indicators.DetermineCloudSignal()
         }*/
-    }
-    errHandler := func(err error) {
-        fmt.Println(err)
-    }
-    doneC, _, err := binance.WsKlineServe(pair, timeframe, wsKlineHandler, errHandler)
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    <-doneC
-}
 
-// func stringSlicetoFloatSlice(s []string) []float64 {
-//     sliceScan = scanner.Text()
-//     newSlice := make([]float32, len(s), len(s))
-//     for i := 0; i < len(s); i += 1 {
-//         f64, err := strconv.ParseFloat(s[i], 32)
-//         newSlice[i] = float32(f64)
-//     }
-// }
+/*
+ * function stringSlicetoFloatSlice
+ * params: string slice
+ * returns: float slice
+ ************************
+ * Converts a slice of strings to a slice of floats
+ */
+func stringSlicetoFloatSlice(s []string) []float64 {
+    sliceScan = scanner.Text()
+    newSlice := make([]float64, len(s), len(s))
+    for i := 0; i < len(s); i += 1 {
+        f64, err := strconv.ParseFloat(s[i], 64)
+        newSlice[i] = float64(f64)
+    }
+}
 
 /*
  Current flow CLI utility cold with server mode enabled
@@ -302,7 +372,7 @@ func listenOnSocket(client *binance.Client, pair string, timeframe string, sess 
 func main() {
     println("Starting futures.go")
     getopt.Parse()
-    cleanFlagArguments()
+    parseCommandFlags()
     // printFlagArguments()
     client := binance.NewClient(common.ApiKey, common.SecretKey)
     client.Debug = true
@@ -325,6 +395,7 @@ func main() {
             fmt.Println("Error creating Discord session: ", err)
             return
         }
+        // Spawns goRoutines to listen to multiple different pairs at once from Binance.
         go listenOnSocket(client, "BTCUSDT", "1m", dg)
         // go listenOnSocket(client, "ETHBTC", "1m", dg)
         // go listenOnSocket(client, "BNBBTC", "1m", dg)
@@ -352,6 +423,12 @@ func main() {
     }
 }
 
+/*
+ * function cancelOrders
+ * params: client, order slice
+ ************************
+ * Cancels a defined set of orders that we pass into the function
+ */
 func cancelOrders(client *binance.Client, orders []*binance.Order) {
     for _, order := range orders {
         _, err := client.NewCancelOrderService().Symbol(order.Symbol).OrderID(order.OrderID).Do(context.Background())
@@ -362,6 +439,12 @@ func cancelOrders(client *binance.Client, orders []*binance.Order) {
     }
 }
 
+/*
+ * function cancelOrders
+ * params: client
+ ************************
+ * Cancels all of our outstanding orders on Biannce
+ */
 func cancelAllOrders(client *binance.Client) {
     orders := getOrders(client)
     for _, order := range orders {
@@ -373,6 +456,12 @@ func cancelAllOrders(client *binance.Client) {
     }
 }
 
+/*
+ * function getOrders
+ * params: client
+ ************************
+ * Gets all of our outstanding orders on Binance
+ */
 func getOrders(client *binance.Client) []*binance.Order {
     openOrdersAcrossAllPairs := []*binance.Order{}
     for _, asset := range common.Pairs {
@@ -396,6 +485,8 @@ func getOrders(client *binance.Client) []*binance.Order {
  * function getPrices
  * params: client
  ********
+ * Gets the price state object from Binance -- Prices of all assets
+ * Crrently ignoring the price of BTC and ETH
  */
 func getPrices(client *binance.Client) []*binance.SymbolPrice {
     prices, err := client.NewListPricesService().Do(context.Background())
@@ -413,7 +504,7 @@ func getPrices(client *binance.Client) []*binance.SymbolPrice {
         truncPrice, _ := strconv.ParseFloat(calculateOrderSizeFromPrecision(10/price, i.Symbol), 64)
         fmt.Println(i.Symbol, truncPrice)
     }
-    //skip btc and eth prices
+    //skip btc and eth prices, because we're trading altcoins
     return prices[2:]
 }
 
@@ -421,6 +512,7 @@ func getPrices(client *binance.Client) []*binance.SymbolPrice {
  * function stringToSide
  * params: direction
  ************************
+ * Converts a string into a Binance side direction
  */
 func stringToSide(direction string) binance.SideType {
     if direction == "BUY" {
@@ -434,7 +526,8 @@ func stringToSide(direction string) binance.SideType {
  * function closeOpenPositions
  * params: client
  ************************
- */ //Assumes
+ * Closes all open positions on binance
+ */ 
 func closeOpenPositions(client *binance.Client) {
     for _, asset := range common.Pairs {
         closeOpenPosition(client, asset)
@@ -564,6 +657,13 @@ func getOppositeDirection(direction binance.SideType) binance.SideType {
  * function stopMarketOrders
  * params: client
  ************************
+ * Places stopMarket orders at a passed differetial from the current price (the offset paraeter)
+ * on the  passed pairs and in the specified direction
+ * Utilizes stopMarketOrder function
+ * The size that will be used by thes market orders will be proportional to the position's total value, 
+ * with the proportion being passed into /futuers at the command line invocation. It needs
+ * to be calculated by handling the precision used by th pai on Binance, for which it calls 
+ * calculateOrderSizeFromPrecision
  */
 func stopMarketOrders(client *binance.Client, direction binance.SideType, offset float64, isReduceOnly binance.OrderReduceOnly, pairs ...string) {
     prices := getPrices(client)
@@ -578,7 +678,14 @@ func stopMarketOrders(client *binance.Client, direction binance.SideType, offset
  * function stopMarketOrder
  * params: client
  ************************
- */ //error-returning
+ * 
+  * //error-returning, needs to be handled
+ * Places orders at the market - at the best available price -
+ * on the  passed pairs and in the specified direction
+ * Utilizes arketOrder function
+ * The size that will be used by thes market orders is set at invocation
+ * Logging currently enabled, TODO disable or allow configuration of logging
+ */ 
 func stopMarketOrder(client *binance.Client, direction binance.SideType, asset string, offset float64, size string, price string, isReduceOnly binance.OrderReduceOnly) error {
     order, err := client.NewCreateOrderService().Symbol(asset).
         Side(direction).Type(binance.OrderTypeStopLoss).
@@ -597,6 +704,11 @@ func stopMarketOrder(client *binance.Client, direction binance.SideType, asset s
  * function MarketOrders
  * params: client
  ************************
+ * Places orders at the market - at the best available price -
+ * on the  passed pairs and in the specified direction
+ * Utilizes arketOrder function
+ * The size that will be used by thes market orders is set at invocation
+ * Logging currently enabled, TODO disable or allow configuration of logging
  */
 func MarketOrders(client *binance.Client, direction binance.SideType, pairs ...string) {
     for _, asset := range common.Pairs {
@@ -609,7 +721,10 @@ func MarketOrders(client *binance.Client, direction binance.SideType, pairs ...s
  * function marketOrder
  * params: client
  ************************
- */ //error-returning
+ * Called by MarketOrdes
+ * Places a single order at the market on the passed pair, in the specified sizes and direction
+ * //error-returning, needs to be handled
+ */ 
 func marketOrder(client *binance.Client, direction binance.SideType, asset string, size string) error {
     order, err := client.NewCreateOrderService().Symbol(asset).
         Side(direction).Type(binance.OrderTypeMarket).
