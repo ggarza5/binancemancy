@@ -3,6 +3,8 @@ package main
 import (
     "context"
     "fmt"
+    discordGo "github.com/bwmarrin/discordgo"
+
     "github.com/ggarza5/go-binance-futures"
     // "github.com/adshao/go-binance"
     "github.com/ggarza5/go-binance-futures/common"
@@ -10,10 +12,12 @@ import (
     "github.com/pborman/getopt/v2"
     "log"
     // "html/template"
-    // "os"
+    "os"
     // "path/filepath"
+    gCommon "github.com/ggarza5/alpaca-first/common"
+    pretty "github.com/inancgumus/prettyslice"
     "math"
-    "math/rand"
+    _ "math/rand"
     "strconv"
     _ "strings"
 )
@@ -67,6 +71,7 @@ func init() {
     getopt.FlagLong(&positionMultiplierFlag, "mult", 'm', "multiplier").SetOptional()
     getopt.FlagLong(&globalOffsetFlag, "off", 'o', "off").SetOptional()
     getopt.FlagLong(&mode, "mode", 'M', "mode").SetOptional()
+
 }
 
 func getAccount(client *binance.Client) *binance.Account {
@@ -150,31 +155,101 @@ func cleanFlagArguments() {
 
 //func shortIfPriceClosedBelowTrend
 
-var ltcFifteen = make([]*binance.WsKlineEvent, 0)
-var ltcFifteenIndex = 0
-var ltcFifteenRSI = 0.0
+var globalKlines = make([]*binance.WsKlineEvent, 0)
+var globalKlineIndex = 0
+var globalKlineRsi = 0.0
 
 var dataCloses = make([]string, 0)
 var dataClosesInts = make([]int, 0)
-var dataClosesFloats = make([]float64, 32)
+var dataClosesFloats = make([]float64, 0)
+
+var dataOpens = make([]string, 0)
+var dataOpensInts = make([]int, 0)
+var dataOpensFloats = make([]float64, 0)
+
+var dataHighs = make([]string, 0)
+var dataHighsInts = make([]int, 0)
+var dataHighsFloats = make([]float64, 0)
+
+var dataLows = make([]string, 0)
+var dataLowsInts = make([]int, 0)
+var dataLowsFloats = make([]float64, 0)
 
 var dummyCloses []float64 = []float64{1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 4.0, 1.0, 3.0, 1.0, 2.0, 3.0, 1.0, 4.0, 3.0, 10.0, 1.0, 1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 5.0, 1.0, 3.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 10.0, 1.0, 1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 4.0, 2.0, 1.0, 2.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 4.0, 1.0, 13.0, 1.0, 4.0, 3.0, 10.0, 1.0, 1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 5.0, 1.0, 3.0, 1.0, 1.0, 2.0}
 var dummyHighs []float64 = []float64{2.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 2.0, 1.0, 3.0, 1.0, 1.0, 3.0, 1.0, 4.0, 1.0, 10.0, 1.0}
 var dummyLows []float64 = []float64{1.0, 2.0, 2.5, 5.0, 1.0, 2.0, 3.0, 10.0, 10.0, 10.0, 2.0, 1.0, 2.0, 1.0, 3.0, 1.0, 1.0, 3.0, 1.0, 4.0, 1.0, 10.0, 1.0}
 
-func listenOnSocket(client *binance.Client, pair string, timeframe string) {
+var kijunInterval int = 60
+var tenkanInterval int = 20
+var sks1Interval int = 60
+var sks2Interval int = 120
+
+var discordAuthToken = "ODc4ODU0ODY2MjI5OTQ0MzQw.YSHPYA.EJuBjlGTe1VMXrHTFc55bWv2FlY"
+var staffChannelId = "719691307983044671"
+var testSharkPrivId = "717509948489203823"
+
+func popFloatSlice(s []float64, slen int) []float64 {
+    println("the length of the slice is ")
+    println(len(s))
+    if len(s) > slen {
+        println("should be popping")
+        return s[1:]
+    } else {
+        println("we not going to pop")
+        return s
+    }
+}
+
+func printCloud(a ...[]float64) {
+    for i, x := range a {
+        pretty.Show("cloud line "+strconv.Itoa(i), x)
+    }
+}
+
+//need to do nothing when data arrays are 0
+//need to not issue any signals until senkou span b is finished forming
+//for now need to wait until
+
+//first edition
+//only calculate indicator on candle closes
+
+func listenOnSocket(client *binance.Client, pair string, timeframe string, sess *discordGo.Session) {
     wsKlineHandler := func(event *binance.WsKlineEvent) {
-        if event.Kline.IsFinal {
-            // fmt.Println(event)
-            ltcFifteen = append(ltcFifteen, event)
-            dataCloses = append(dataCloses, event.Kline.Close)
-            i, _ := strconv.Atoi(event.Kline.Close)
-            dataClosesInts = append(dataClosesInts, i)
-            dataClosesFloats = append(dataClosesFloats, float64(i))
-            fmt.Println(dataCloses)
+        if !event.Kline.IsFinal {
+            return
         }
+        fmt.Println(event)
+        println("event is final")
+        globalKlines = append(globalKlines, event)
+        // dataCloses = popFloatSlice(append(dataCloses, event.Kline.Close))
+        dataClosesFloats = popFloatSlice(append(dataClosesFloats, gCommon.ParseFloatHandleErr(event.Kline.Close)), sks2Interval)
+        dataHighsFloats = popFloatSlice(append(dataHighsFloats, gCommon.ParseFloatHandleErr(event.Kline.High)), sks2Interval)
+        // dataHighs = popFloatSlice(append(dataHighs, event.Kline.High))
+        // dataLows = popFloatSlice(append(dataLows, event.Kline.Low))
+        dataLowsFloats = popFloatSlice(append(dataLowsFloats, gCommon.ParseFloatHandleErr(event.Kline.Low)), sks2Interval)
+        // i, _ := strconv.Atoi(event.Kline.Close)
+        fmt.Println(dataClosesFloats)
+
+        //calculate cloud and get signal
+        conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan := indicators.CalculateIchimokuCloud(dataClosesFloats, dataLowsFloats, dataHighsFloats, []int{9, 26, 52, 26})
+        // println(conversionLine)
+        // fmt.Println(fmt.Printf("%.2f", conversionLine))
+        _, _, _, _, _ = conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan
+        printCloud(conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan)
+        signal := indicators.DetermineCloudSignal(dataClosesFloats, conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan)
+        println(signal)
+        if signal == -1 {
+            sess.ChannelMessageSend(testSharkPrivId, pair+" just had a negative TK cross on the "+timeframe+" timeframe.")
+        } else if signal == 1 {
+            sess.ChannelMessageSend(testSharkPrivId, pair+" just had a positive TK cross on the "+timeframe+" timeframe.")
+        }
+        // if signal == 0 {
+        //     sess.ChannelMessageSend(testSharkPrivId, pair+" just had NO CROSS ! "+timeframe+" timeframe.")
+        // }
+
+        // }
         //start calculating Bollinger Bands
-        if len(dummyCloses) >= 20 {
+        /*if len(dummyCloses) >= 20 {
             middle, upper, lower := indicators.BollingerBands(dummyCloses, 20, 2.0)
             _, _, _ = middle, upper, lower
             var dummyHighs []float64
@@ -184,9 +259,13 @@ func listenOnSocket(client *binance.Client, pair string, timeframe string) {
                 dummyLows = append(dummyLows, f-rand.Float64())
             }
 
-            conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan := indicators.IchimokuCloud(dummyCloses, dummyLows, dummyHighs, []int{20, 60, 120, 30})
+            conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan := indicators.CalculateIchimokuCloud(dummyCloses, dummyLows, dummyHighs, []int{20, 60, 120, 30})
+            // println(conversionLine)
+            fmt.Println(fmt.Printf("%.2f", conversionLine))
+            println("sasda")
             _, _, _, _, _ = conversionLine, baseLine, leadSpanA, leadSpanB, lagSpan
-        }
+            indicators.DetermineCloudSignal()
+        }*/
     }
     errHandler := func(err error) {
         fmt.Println(err)
@@ -199,6 +278,20 @@ func listenOnSocket(client *binance.Client, pair string, timeframe string) {
     <-doneC
 }
 
+// func stringSlicetoFloatSlice(s []string) []float64 {
+//     sliceScan = scanner.Text()
+//     newSlice := make([]float32, len(s), len(s))
+//     for i := 0; i < len(s); i += 1 {
+//         f64, err := strconv.ParseFloat(s[i], 32)
+//         newSlice[i] = float32(f64)
+//     }
+// }
+
+/*
+ Current flow CLI utility cold with server mode enabled
+ Listen on socket called
+
+*/
 //end getopt initialization
 //invoke like ./main -dir=short -mult=1.0
 /*
@@ -227,8 +320,25 @@ func main() {
     } else if mode == "server" {
         // SetupServer()
         println("Running in server mode.")
-        listenOnSocket(client, "BTCUSDT", "1m")
-
+        dg, err := discordGo.New("Bot " + discordAuthToken)
+        if err != nil {
+            fmt.Println("Error creating Discord session: ", err)
+            return
+        }
+        go listenOnSocket(client, "BTCUSDT", "1m", dg)
+        // go listenOnSocket(client, "ETHBTC", "1m", dg)
+        // go listenOnSocket(client, "BNBBTC", "1m", dg)
+        // go listenOnSocket(client, "FTMUSDT", "1m", dg)
+        // go listenOnSocket(client, "FTMBTC", "1m", dg)
+        // go listenOnSocket(client, "ADABTC", "1m", dg)
+        // go listenOnSocket(client, "LINKBTC", "1m", dg)
+        exit := make(chan string)
+        for {
+            select {
+            case <-exit:
+                os.Exit(0)
+            }
+        }
     } else if mode == "stopMarket" {
         //longs will have stops set below current prices,
         //shorts will have stops set above current prices
