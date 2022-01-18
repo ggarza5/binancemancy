@@ -21,6 +21,8 @@ import (
 
 type mfloat []float64
 
+//invoke like ./futures -ds -Mm -m1.0
+
 var (
     OpenDirection      = "SELL"
     TradeDirection     = ""
@@ -363,7 +365,7 @@ func stringSlicetoFloatSlice(s []string) []float64 {
 
 */
 //end getopt initialization
-//invoke like ./main -dir=short -mult=1.0
+//invoke like ./futures -Ds -M1
 /*
  * function main
  * params:
